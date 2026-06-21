@@ -89,7 +89,7 @@ class Country:
     cities: list[City]
     balance: int = 1000
     tech: bool = False
-    tech_in_research: bool = False   # True = идёт исследование, завершится в конце следующего хода
+    tech_in_research: bool = False   
     bombs: int = 1
     bombs_in_production: int = 0
 
