@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
