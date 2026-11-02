@@ -50,7 +50,7 @@ fun GameScreen(controller: GameController, saves: Saves, onMenu: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
         val narrow = maxWidth < NARROW
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            TopBar(controller, saves, onMenu)
+            TopBar(controller, saves, onMenu, narrow)
             if (narrow) NarrowBody(controller) else WideBody(controller)
         }
     }
@@ -89,24 +89,23 @@ private fun NarrowBody(c: GameController) {
 // ─── Верхняя панель ──────────────────────────────────────────────────────────
 
 @Composable
-private fun TopBar(c: GameController, saves: Saves, onMenu: () -> Unit) {
+private fun TopBar(c: GameController, saves: Saves, onMenu: () -> Unit, narrow: Boolean) {
     val state = c.state
+    val gap = if (narrow) 6.dp else 10.dp
     Panel(Modifier.fillMaxWidth()) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) {
+        // Узкий экран: строка состояния и строка кнопок; широкий — всё в одну строку
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) {
             Btn("Меню", onMenu)
-            Txt("ХОД ${state.turn}", size = 18.sp, bold = true)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Txt("ЭКОЛОГИЯ", color = Palette.dim)
-                Bar(state.ecology / 100f, ecologyColor(state.ecology), Modifier.width(140.dp))
-                Txt("${state.ecology}%", color = ecologyColor(state.ecology), bold = true)
+            Txt("ХОД ${state.turn}", size = if (narrow) 16.sp else 18.sp, bold = true)
+            if (!narrow) Txt("ЭКОЛОГИЯ", color = Palette.dim)
+            Bar(state.ecology / 100f, ecologyColor(state.ecology), if (narrow) Modifier.weight(1f) else Modifier.width(140.dp))
+            Txt("${state.ecology}%", color = ecologyColor(state.ecology), bold = true)
+            if (!narrow) TurnButtons(c, saves, Modifier, "ПРИМЕНИТЬ ХОД")
+        }
+        if (narrow) {
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                TurnButtons(c, saves, Modifier.weight(1f), "ПРИМЕНИТЬ")
             }
-            Btn("Отменить", c::undo, enabled = c.canUndo)
-            Btn("Сохранить", { c.message = "Сохранено: ${saves.save(state)}" })
-            Btn("ПРИМЕНИТЬ ХОД", c::resolve, enabled = !state.isOver, color = Palette.accent)
         }
         c.launchFrom?.let { from ->
             Row(
@@ -114,13 +113,20 @@ private fun TopBar(c: GameController, saves: Saves, onMenu: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Txt("РЕЖИМ АТАКИ: $from — выберите город-цель", color = Palette.red, bold = true)
+                Txt("АТАКА: $from — выберите цель", Modifier.weight(1f, fill = false), color = Palette.red, bold = true)
                 Btn("Отмена", { c.launchFrom = null })
             }
         }
         state.result?.let { Txt(it.describe(), Modifier.padding(top = 6.dp), color = Palette.yellow, bold = true) }
         c.message?.let { Txt(it, Modifier.padding(top = 6.dp), color = Palette.yellow) }
     }
+}
+
+@Composable
+private fun TurnButtons(c: GameController, saves: Saves, modifier: Modifier, resolveTitle: String) {
+    Btn("Отменить", c::undo, modifier, enabled = c.canUndo)
+    Btn("Сохранить", { c.message = "Сохранено: ${saves.save(c.state)}" }, modifier)
+    Btn(resolveTitle, c::resolve, modifier, enabled = !c.state.isOver, color = Palette.accent)
 }
 
 // ─── Страны ──────────────────────────────────────────────────────────────────

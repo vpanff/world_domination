@@ -54,6 +54,8 @@ class ScreenshotTest {
         shot("menu", 1400, 900) { App(memory) }
         shot("new_game", 1400, 900) { NewGameScreen({}, {}) }
         shot("game_wide", 1400, 900) { GameScreen(midGame(), Saves(memory)) {} }
-        shot("game_narrow", 420, 900) { GameScreen(midGame().apply { startLaunch("США") }, Saves(memory)) {} }
+        shot("game_narrow", 360, 780) { GameScreen(midGame(), Saves(memory)) {} }
+        shot("game_narrow_attack", 360, 780) { GameScreen(midGame().apply { startLaunch("США") }, Saves(memory)) {} }
+        shot("new_game_narrow", 360, 780) { NewGameScreen({}, {}) }
     }
 }

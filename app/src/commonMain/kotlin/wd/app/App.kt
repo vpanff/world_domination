@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -26,12 +27,15 @@ import wd.core.GameState
 
 private enum class Screen { MENU, NEW_GAME, LOAD, SETTINGS, GAME }
 
+/** Системная кнопка «Назад»: (активна ли, обработчик). На ПК её нет. */
+typealias BackHandler = @Composable (enabled: Boolean, onBack: () -> Unit) -> Unit
+
 /**
  * Корень приложения ведущего.
  * [onExit] — выход из приложения; null, если платформа сама управляет закрытием (Android).
  */
 @Composable
-fun App(storage: Storage, onExit: (() -> Unit)? = null) {
+fun App(storage: Storage, onExit: (() -> Unit)? = null, backHandler: BackHandler = { _, _ -> }) {
     val saves = remember { Saves(storage) }
     var screen by remember { mutableStateOf(Screen.MENU) }
     var controller by remember { mutableStateOf<GameController?>(null) }
@@ -42,7 +46,13 @@ fun App(storage: Storage, onExit: (() -> Unit)? = null) {
         screen = Screen.GAME
     }
 
-    Column(Modifier.fillMaxSize().background(Palette.bg)) {
+    // «Назад»: из режима атаки — отмена атаки, с любого экрана — в меню, из меню — выход
+    backHandler(screen != Screen.MENU) {
+        val c = controller
+        if (screen == Screen.GAME && c?.launchFrom != null) c.launchFrom = null else screen = Screen.MENU
+    }
+
+    Column(Modifier.fillMaxSize().background(Palette.bg).safeDrawingPadding()) {
         when (screen) {
             Screen.MENU -> MainMenu(
                 canContinue = controller != null || saves.loadAutosave() != null,

@@ -63,7 +63,7 @@ fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit) {
                     country.cities.forEachIndexed { j, city ->
                         Field(city, { v ->
                             edit(i) { c -> c.copy(cities = c.cities.mapIndexed { k, old -> if (k == j) v else old }) }
-                        }, Modifier.width(200.dp))
+                        }, Modifier.width(140.dp))
                     }
                 }
             }
