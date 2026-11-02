@@ -79,7 +79,7 @@ private fun GameState.apply(action: Action, events: MutableList<GameEvent>): Gam
     val country = country(action.country) ?: return this
     val cost = rules.cost(action.type)
     if (country.balance < cost) {
-        events += ActionFailed(country.name, "не хватило денег на ${action.type}")
+        events += ActionFailed(country.name, "не хватило денег на «${action.type.title()}»")
         return this
     }
     val paid = updateCountry(country.name) { it.copy(balance = it.balance - cost) }

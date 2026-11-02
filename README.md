@@ -10,6 +10,7 @@ Telegram-бот для игроков.
 
 ```
 core/     — правила игры на Kotlin (без UI)
+app/      — приложение ведущего (Compose Multiplatform)
 legacy/   — Python-версия 1.0.0 (PyQt6)
 ```
 
@@ -18,7 +19,14 @@ legacy/   — Python-версия 1.0.0 (PyQt6)
 Нужен JDK 17+.
 
 ```bash
-./gradlew :core:jvmTest    # тесты ядра
+./gradlew :app:run                # запустить приложение ведущего
+./gradlew :core:jvmTest           # тесты ядра
+./gradlew :app:desktopTest        # скриншоты экранов → app/build/screenshots
+./gradlew :app:packageDistributionForCurrentOS   # установщик для текущей ОС
 ```
+
+Сохранения лежат в `~/.local/share/world-domination/saves` (Linux),
+`%APPDATA%\world-domination\saves` (Windows),
+`~/Library/Application Support/world-domination/saves` (macOS).
 
 Старая версия: `pip install -r legacy/requirements.txt && python legacy/app.py`
