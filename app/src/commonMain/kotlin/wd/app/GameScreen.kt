@@ -46,12 +46,14 @@ import wd.core.describe
 private val NARROW = 900.dp
 
 @Composable
-fun GameScreen(controller: GameController, saves: Saves, onMenu: () -> Unit) {
+fun GameScreen(session: HostSession, onMenu: () -> Unit) {
+    val controller = session.controller ?: return
+    val saves = session.saves
     BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
         val narrow = maxWidth < NARROW
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             TopBar(controller, saves, onMenu, narrow)
-            if (narrow) NarrowBody(controller) else WideBody(controller)
+            if (narrow) NarrowBody(session, controller) else WideBody(session, controller)
         }
     }
 }
@@ -59,28 +61,30 @@ fun GameScreen(controller: GameController, saves: Saves, onMenu: () -> Unit) {
 // ─── Раскладки ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun WideBody(c: GameController) {
+private fun WideBody(session: HostSession, c: GameController) {
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         CountryGrid(c, Modifier.weight(1f).fillMaxHeight())
         Column(Modifier.width(340.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             QueuePanel(c, Modifier.weight(1f))
+            BotPanel(session, Modifier.weight(1f))
             LogPanel(c, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun NarrowBody(c: GameController) {
+private fun NarrowBody(session: HostSession, c: GameController) {
     var tab by remember { mutableStateOf(0) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Страны", "Очередь (${c.state.pending.size})", "Лог").forEachIndexed { i, title ->
+            listOf("Страны", "Очередь (${c.state.pending.size})", "Бот", "Лог").forEachIndexed { i, title ->
                 Btn(title, { tab = i }, color = if (tab == i) Palette.accent else Palette.button)
             }
         }
         when (tab) {
             0 -> CountryGrid(c, Modifier.fillMaxSize())
             1 -> QueuePanel(c, Modifier.fillMaxSize())
+            2 -> BotPanel(session, Modifier.fillMaxSize())
             else -> LogPanel(c, Modifier.fillMaxSize())
         }
     }
@@ -154,6 +158,10 @@ private fun CountryCard(c: GameController, country: Country) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Txt(name, Modifier.weight(1f), size = 17.sp, bold = true, color = if (alive) Palette.text else Palette.dead, strike = !alive)
             if (!alive) Txt("уничтожена", color = Palette.dead)
+        }
+        state.leaders[name]?.let { leader ->
+            val ready = name in state.ready
+            Txt("глава: ${leader.name}" + if (ready) " · готов" else "", color = if (ready) Palette.green else Palette.blue, size = 13.sp)
         }
         if (alive) {
             val available = state.availableBalance(name)

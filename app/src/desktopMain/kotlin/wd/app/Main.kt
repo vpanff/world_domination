@@ -5,16 +5,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.MainScope
 import java.io.File
 
 fun main() = application {
-    val storage = remember { FileStorage(File(dataDir(), "saves")) }
+    val session = remember {
+        HostSession(FileStorage(File(dataDir(), "saves")), FileStorage(File(dataDir(), "config")), MainScope())
+    }
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = {
+            session.stopBot()
+            exitApplication()
+        },
         title = "Мировое господство",
         state = rememberWindowState(width = 1400.dp, height = 900.dp),
     ) {
-        App(storage, onExit = ::exitApplication)
+        App(session, onExit = {
+            session.stopBot()
+            exitApplication()
+        })
     }
 }
 

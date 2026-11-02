@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose)
 }
 
@@ -25,7 +26,10 @@ kotlin {
         getByName("androidMain").dependsOn(jvmSharedMain)
 
         commonMain.dependencies {
-            implementation(project(":core"))
+            api(project(":core"))
+            api(project(":bot"))   // HostSession наследует GameHost — нужен потребителям
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)

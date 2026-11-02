@@ -16,5 +16,6 @@ dependencyResolutionManagement {
 }
 
 include(":core")
+include(":bot")
 include(":app")
 include(":androidApp")

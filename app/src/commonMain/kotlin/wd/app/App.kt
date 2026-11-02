@@ -18,11 +18,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import wd.core.GameState
 
 private enum class Screen { MENU, NEW_GAME, LOAD, SETTINGS, GAME }
@@ -35,29 +37,27 @@ typealias BackHandler = @Composable (enabled: Boolean, onBack: () -> Unit) -> Un
  * [onExit] — выход из приложения; null, если платформа сама управляет закрытием (Android).
  */
 @Composable
-fun App(storage: Storage, onExit: (() -> Unit)? = null, backHandler: BackHandler = { _, _ -> }) {
-    val saves = remember { Saves(storage) }
-    var screen by remember { mutableStateOf(Screen.MENU) }
-    var controller by remember { mutableStateOf<GameController?>(null) }
+fun App(session: HostSession, onExit: (() -> Unit)? = null, backHandler: BackHandler = { _, _ -> }) {
+    // Если партия уже открыта (Android: активити пересоздана, а бот работал в фоне) — сразу в игру
+    var screen by remember { mutableStateOf(if (session.controller != null) Screen.GAME else Screen.MENU) }
+    val controller = session.controller
 
     fun open(state: GameState) {
-        saves.autosave(state)
-        controller = GameController(state, onChange = saves::autosave)
+        session.open(state)
         screen = Screen.GAME
     }
 
     // «Назад»: из режима атаки — отмена атаки, с любого экрана — в меню, из меню — выход
     backHandler(screen != Screen.MENU) {
-        val c = controller
-        if (screen == Screen.GAME && c?.launchFrom != null) c.launchFrom = null else screen = Screen.MENU
+        if (screen == Screen.GAME && controller?.launchFrom != null) controller.launchFrom = null else screen = Screen.MENU
     }
 
     Column(Modifier.fillMaxSize().background(Palette.bg).safeDrawingPadding()) {
         when (screen) {
             Screen.MENU -> MainMenu(
-                canContinue = controller != null || saves.loadAutosave() != null,
+                canContinue = controller != null || session.loadAutosave() != null,
                 onContinue = {
-                    if (controller == null) saves.loadAutosave()?.let(::open) else screen = Screen.GAME
+                    if (controller == null) session.loadAutosave()?.let(::open) else screen = Screen.GAME
                 },
                 onNewGame = { screen = Screen.NEW_GAME },
                 onLoad = { screen = Screen.LOAD },
@@ -65,9 +65,9 @@ fun App(storage: Storage, onExit: (() -> Unit)? = null, backHandler: BackHandler
                 onExit = onExit,
             )
             Screen.NEW_GAME -> NewGameScreen(onStart = ::open, onBack = { screen = Screen.MENU })
-            Screen.LOAD -> LoadScreen(saves, onLoad = ::open, onBack = { screen = Screen.MENU })
-            Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.MENU })
-            Screen.GAME -> GameScreen(controller!!, saves, onMenu = { screen = Screen.MENU })
+            Screen.LOAD -> LoadScreen(session.saves, onLoad = ::open, onBack = { screen = Screen.MENU })
+            Screen.SETTINGS -> SettingsScreen(session, onBack = { screen = Screen.MENU })
+            Screen.GAME -> GameScreen(session, onMenu = { screen = Screen.MENU })
         }
     }
 }
@@ -130,10 +130,35 @@ private fun LoadScreen(saves: Saves, onLoad: (GameState) -> Unit, onBack: () -> 
 }
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit) = CenteredColumn {
+private fun SettingsScreen(session: HostSession, onBack: () -> Unit) = CenteredColumn {
+    var token by remember { mutableStateOf(session.settings.botToken) }
+    var check by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
     Txt("НАСТРОЙКИ", size = 24.sp, bold = true)
-    Txt("Здесь появятся настройки Telegram-бота и звука.", color = Palette.dim)
-    Txt("Версия 2.0.0", color = Palette.dim)
     Spacer(Modifier.height(12.dp))
+    Column(Modifier.widthIn(max = 600.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Txt("Telegram-бот", bold = true)
+        Txt("Токен от @BotFather. Хранится только на этом устройстве.", color = Palette.dim, size = 13.sp)
+        Field(token, { token = it; check = null }, Modifier.fillMaxWidth(), secret = true)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn("Проверить", {
+                check = "Проверяю…"
+                scope.launch {
+                    check = session.checkToken(token).fold(
+                        { "Бот найден: @$it" },
+                        { "Не получилось: ${it.message}" },
+                    )
+                }
+            }, enabled = token.isNotBlank())
+            Btn("Сохранить", {
+                session.updateToken(token)
+                check = "Сохранено"
+            }, enabled = token.trim() != session.settings.botToken)
+        }
+        check?.let { Txt(it, color = Palette.yellow) }
+    }
+    Spacer(Modifier.height(12.dp))
+    Txt("Версия 2.0.0", color = Palette.dim)
     Btn("Назад", onBack)
 }

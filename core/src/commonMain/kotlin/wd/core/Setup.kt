@@ -36,7 +36,7 @@ fun newGame(setup: GameSetup = GameSetup()): GameState {
     }
 
     val rules = setup.rules
-    return GameState(
+    val state = GameState(
         rules = rules,
         ecology = rules.startEcology,
         countries = setup.countries.map { c ->
@@ -48,4 +48,5 @@ fun newGame(setup: GameSetup = GameSetup()): GameState {
             )
         },
     )
+    return state.withInvites()
 }

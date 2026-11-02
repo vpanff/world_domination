@@ -187,6 +187,22 @@ class EngineTest {
     }
 
     @Test
+    fun invitesAndReady() {
+        var s = newGame()
+        assertEquals(5, s.invites.values.toSet().size)
+        assertEquals(ru, s.countryByInvite(s.invites.getValue(ru)))
+
+        s = s.copy(leaders = mapOf(ru to Leader(42, "Вова")), ready = setOf(ru))
+        assertEquals(ru, s.countryOfLeader(42))
+        s = s.resolveTurn()
+        assertTrue(s.ready.isEmpty())
+        assertEquals(42, s.leaders.getValue(ru).telegramId)
+
+        val old = s.copy(invites = emptyMap()).withInvites()
+        assertEquals(5, old.invites.size)
+    }
+
+    @Test
     fun setupValidation() {
         assertFailsWith<IllegalArgumentException> {
             newGame(GameSetup(listOf(CountrySetup("A", listOf("a", "a")), CountrySetup("B", listOf("b")))))

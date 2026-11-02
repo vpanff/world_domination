@@ -28,6 +28,8 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -108,11 +110,12 @@ fun Btn(
 }
 
 @Composable
-fun Field(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+fun Field(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, secret: Boolean = false) {
     BasicTextField(
         value = value,
         onValueChange = onChange,
         singleLine = true,
+        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         textStyle = TextStyle(color = Palette.text, fontSize = 14.sp, fontFamily = font),
         cursorBrush = SolidColor(Palette.text),
         modifier = modifier

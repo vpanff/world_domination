@@ -1,6 +1,7 @@
 package wd.core
 
 import kotlinx.serialization.Serializable
+import kotlin.random.Random
 
 // Все классы неизменяемые: любое действие возвращает новое состояние.
 // Это упрощает отмену хода и безопасно при одновременной работе UI и бота.
@@ -75,6 +76,10 @@ sealed interface GameResult {
     data object AllDestroyed : GameResult
 }
 
+/** Глава страны в Telegram. */
+@Serializable
+data class Leader(val telegramId: Long, val name: String)
+
 /** События одного рассчитанного хода. */
 @Serializable
 data class TurnLog(val turn: Int, val events: List<GameEvent>)
@@ -89,6 +94,13 @@ data class GameState(
     val pending: List<Action> = emptyList(),
     val nextActionId: Int = 1,
     val log: List<TurnLog> = emptyList(),
+
+    /** Главы стран: страна → игрок в Telegram. */
+    val leaders: Map<String, Leader> = emptyMap(),
+    /** Коды приглашений: страна → код для ссылки t.me/<бот>?start=<код>. */
+    val invites: Map<String, String> = emptyMap(),
+    /** Страны, отметившие, что закончили ход. Сбрасывается при расчёте хода. */
+    val ready: Set<String> = emptySet(),
 ) {
     val isOver: Boolean get() = result != null
 
@@ -106,9 +118,23 @@ data class GameState(
         return c.balance - pendingOf(country).sumOf { rules.cost(it.type) }
     }
 
+    fun countryOfLeader(telegramId: Long): String? =
+        leaders.entries.find { it.value.telegramId == telegramId }?.key
+
+    fun countryByInvite(code: String): String? = invites.entries.find { it.value == code }?.key
+
+    /** Добавляет недостающие коды приглашений (для старых сохранений). */
+    fun withInvites(): GameState =
+        if (countries.all { it.name in invites }) this
+        else copy(invites = countries.associate { it.name to (invites[it.name] ?: inviteCode()) })
+
     fun updateCountry(name: String, change: (Country) -> Country): GameState =
         copy(countries = countries.map { if (it.name == name) change(it) else it })
 
     fun updateCity(ref: CityRef, change: (City) -> City): GameState =
         updateCountry(ref.country) { it.updateCity(ref.city, change) }
 }
+
+private const val CODE_CHARS = "abcdefghijkmnpqrstuvwxyz23456789"
+
+fun inviteCode(): String = (1..8).map { CODE_CHARS[Random.nextInt(CODE_CHARS.length)] }.joinToString("")

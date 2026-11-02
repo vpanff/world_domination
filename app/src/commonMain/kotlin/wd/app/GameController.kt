@@ -14,8 +14,11 @@ import wd.core.validate
 
 private const val HISTORY_LIMIT = 100
 
-/** Состояние партии на экране ведущего: текущее состояние, история для отмены, режим атаки. */
-class GameController(initial: GameState, private val onChange: (GameState) -> Unit) {
+/**
+ * Состояние партии на экране ведущего: текущее состояние, история для отмены, режим атаки.
+ * [onChange] получает (старое, новое) состояние после каждого изменения.
+ */
+class GameController(initial: GameState, private val onChange: (GameState, GameState) -> Unit) {
     var state by mutableStateOf(initial)
         private set
 
@@ -43,6 +46,8 @@ class GameController(initial: GameState, private val onChange: (GameState) -> Un
         change { it.resolveTurn() }
     }
 
+    fun unbind(country: String) = change { it.copy(leaders = it.leaders - country, ready = it.ready - country) }
+
     fun startLaunch(country: String) {
         launchFrom = if (launchFrom == country) null else country
     }
@@ -53,19 +58,25 @@ class GameController(initial: GameState, private val onChange: (GameState) -> Un
         add(ActionType.LAUNCH, from, target)
     }
 
+    /** Откат на шаг назад. Привязки игроков к странам не откатываются. */
     fun undo() {
         val previous = history.removeLastOrNull() ?: return
         launchFrom = null
-        apply(previous)
+        apply(previous.copy(leaders = state.leaders, invites = state.invites))
         message = "Отменено"
+    }
+
+    /** Изменение от бота: ошибка не показывается ведущему, а бросается дальше. */
+    fun update(transform: (GameState) -> GameState) {
+        val next = transform(state)
+        history.addLast(state)
+        if (history.size > HISTORY_LIMIT) history.removeFirst()
+        apply(next)
     }
 
     private fun change(transform: (GameState) -> GameState) {
         try {
-            val next = transform(state)
-            history.addLast(state)
-            if (history.size > HISTORY_LIMIT) history.removeFirst()
-            apply(next)
+            update(transform)
             message = null
         } catch (e: ActionError) {
             message = e.message
@@ -73,8 +84,9 @@ class GameController(initial: GameState, private val onChange: (GameState) -> Un
     }
 
     private fun apply(next: GameState) {
+        val old = state
         state = next
         canUndo = history.isNotEmpty()
-        onChange(next)
+        onChange(old, next)
     }
 }

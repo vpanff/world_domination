@@ -156,7 +156,7 @@ fun GameState.resolveTurn(): GameState {
     val researchingBefore = countries.filter { it.techInResearch }.map { it.name }.toSet()
     val ecologyBefore = ecology
 
-    var state = copy(pending = emptyList())
+    var state = copy(pending = emptyList(), ready = emptySet())
     val ordered = pending.sortedBy { it.type.priority }   // сортировка стабильная
 
     for (action in ordered.filter { it.type != ActionType.LAUNCH }) {
