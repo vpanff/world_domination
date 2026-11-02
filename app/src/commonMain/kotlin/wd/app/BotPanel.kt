@@ -57,6 +57,7 @@ fun BotPanel(session: HostSession, modifier: Modifier) {
                     Btn("Остановить", session::stopBot, size = 13.sp)
                     Btn("Перезапустить", session::restartBot, size = 13.sp)
                 }
+                Btn("Логи", session::toggleConsole, size = 13.sp)
                 Btn("Разослать отчёты", {
                     bot?.broadcastTurn()
                     controller.message = "Отчёты отправлены игрокам"

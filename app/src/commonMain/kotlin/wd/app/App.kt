@@ -2,6 +2,7 @@ package wd.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,34 +42,39 @@ fun App(session: HostSession, onExit: (() -> Unit)? = null, backHandler: BackHan
     // Если партия уже открыта (Android: активити пересоздана, а бот работал в фоне) — сразу в игру
     var screen by remember { mutableStateOf(if (session.controller != null) Screen.GAME else Screen.MENU) }
     val controller = session.controller
+    session.hotkeysEnabled = screen != Screen.NEW_GAME && screen != Screen.SETTINGS
 
     fun open(state: GameState) {
         session.open(state)
         screen = Screen.GAME
     }
 
-    // «Назад»: из режима атаки — отмена атаки, с любого экрана — в меню, из меню — выход
-    backHandler(screen != Screen.MENU) {
-        if (screen == Screen.GAME && controller?.launchFrom != null) controller.launchFrom = null else screen = Screen.MENU
+    // «Назад»: консоль → закрыть, режим атаки → отмена, любой экран → меню, меню → выход
+    backHandler(screen != Screen.MENU || session.consoleOpen) {
+        if (session.consoleOpen) session.consoleOpen = false
+        else if (screen == Screen.GAME && controller?.launchFrom != null) controller.launchFrom = null else screen = Screen.MENU
     }
 
-    Column(Modifier.fillMaxSize().background(Palette.bg).safeDrawingPadding()) {
-        when (screen) {
-            Screen.MENU -> MainMenu(
-                canContinue = controller != null || session.loadAutosave() != null,
-                onContinue = {
-                    if (controller == null) session.loadAutosave()?.let(::open) else screen = Screen.GAME
-                },
-                onNewGame = { screen = Screen.NEW_GAME },
-                onLoad = { screen = Screen.LOAD },
-                onSettings = { screen = Screen.SETTINGS },
-                onExit = onExit,
-            )
-            Screen.NEW_GAME -> NewGameScreen(onStart = ::open, onBack = { screen = Screen.MENU })
-            Screen.LOAD -> LoadScreen(session.saves, onLoad = ::open, onBack = { screen = Screen.MENU })
-            Screen.SETTINGS -> SettingsScreen(session, onBack = { screen = Screen.MENU })
-            Screen.GAME -> GameScreen(session, onMenu = { screen = Screen.MENU })
+    Box(Modifier.fillMaxSize().background(Palette.bg).safeDrawingPadding()) {
+        Column(Modifier.fillMaxSize()) {
+            when (screen) {
+                Screen.MENU -> MainMenu(
+                    canContinue = controller != null || session.loadAutosave() != null,
+                    onContinue = {
+                        if (controller == null) session.loadAutosave()?.let(::open) else screen = Screen.GAME
+                    },
+                    onNewGame = { screen = Screen.NEW_GAME },
+                    onLoad = { screen = Screen.LOAD },
+                    onSettings = { screen = Screen.SETTINGS },
+                    onExit = onExit,
+                )
+                Screen.NEW_GAME -> NewGameScreen(onStart = ::open, onBack = { screen = Screen.MENU })
+                Screen.LOAD -> LoadScreen(session.saves, onLoad = ::open, onBack = { screen = Screen.MENU })
+                Screen.SETTINGS -> SettingsScreen(session, onBack = { screen = Screen.MENU })
+                Screen.GAME -> GameScreen(session, onMenu = { screen = Screen.MENU })
+            }
         }
+        if (session.consoleOpen) Console(session)
     }
 }
 

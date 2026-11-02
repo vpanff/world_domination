@@ -170,6 +170,13 @@ class TelegramApi(private val token: String, private val http: HttpTransport = d
 
 /** Исходящее сообщение. Все они идут через очередь с повторами. */
 sealed interface Outgoing {
+    /** Кратко для журнала. */
+    fun describe(): String = when (this) {
+        is Send -> "сообщение в чат $chatId: ${text.lineSequence().first().take(60)}"
+        is Edit -> "обновление панели в чате $chatId"
+        is Answer -> "ответ на кнопку"
+    }
+
     data class Send(val chatId: Long, val text: String, val keyboard: Keyboard? = null) : Outgoing
     data class Edit(val chatId: Long, val messageId: Long, val text: String, val keyboard: Keyboard? = null) : Outgoing
     data class Answer(val callbackId: String, val text: String? = null, val alert: Boolean = false) : Outgoing

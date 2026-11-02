@@ -1,6 +1,11 @@
 package wd.app
 
 import androidx.compose.runtime.remember
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -18,6 +23,14 @@ fun main() = application {
             exitApplication()
         },
         title = "Мировое господство",
+        onPreviewKeyEvent = { event ->
+            // ` (на русской раскладке — ё) открывает консоль бота
+            val grave = event.key == Key.Grave || event.utf16CodePoint in GRAVE_CHARS
+            if (grave && event.type == KeyEventType.KeyDown && session.hotkeysEnabled) {
+                session.toggleConsole()
+                true
+            } else false
+        },
         state = rememberWindowState(width = 1400.dp, height = 900.dp),
     ) {
         App(session, onExit = {
@@ -26,6 +39,8 @@ fun main() = application {
         })
     }
 }
+
+private val GRAVE_CHARS = setOf('`'.code, '~'.code, 'ё'.code, 'Ё'.code)
 
 /** Папка данных приложения по соглашениям каждой ОС. */
 private fun dataDir(): File {

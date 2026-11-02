@@ -35,6 +35,9 @@ sealed interface BotStatus {
     data class Failed(val reason: String) : BotStatus
 }
 
+/** Текущее время ЧЧ:ММ:СС для журнала. */
+expect fun timestamp(): String
+
 private const val POLL_TIMEOUT = 25
 private val BACKOFF = listOf(1, 2, 4, 8, 15, 30)
 
@@ -52,7 +55,11 @@ class GameBot(
     private val scope: CoroutineScope,
     private var offset: Long = 0,
     private val onOffset: (Long) -> Unit = {},
+    /** Журнал для консоли ведущего: строки уже с временем. */
+    private val onLog: (String) -> Unit = {},
 ) {
+    private fun log(message: String) = onLog("${timestamp()}  $message")
+
     private val _status = MutableStateFlow<BotStatus>(BotStatus.Stopped)
     val status: StateFlow<BotStatus> = _status
 
@@ -69,12 +76,14 @@ class GameBot(
 
     fun start() {
         if (isRunning) return
+        log("Запуск бота")
         jobs = listOf(scope.launch { pollLoop() }, scope.launch { sendLoop() })
     }
 
     fun stop() {
         jobs.forEach { it.cancel() }
         jobs = emptyList()
+        if (_status.value != BotStatus.Stopped) log("Бот остановлен")
         _status.value = BotStatus.Stopped
     }
 
@@ -109,6 +118,7 @@ class GameBot(
             try {
                 if (username == null) {
                     username = api.getMe().username
+                    log("Подключено как @$username")
                     api.deleteWebhook()
                     api.setCommands(
                         listOf(
@@ -117,6 +127,7 @@ class GameBot(
                         )
                     )
                 }
+                if (_status.value !is BotStatus.Online) log("Связь с Telegram есть, жду сообщений")
                 _status.value = BotStatus.Online(username.orEmpty())
                 failures = 0
                 val updates = api.getUpdates(offset, POLL_TIMEOUT)
@@ -127,6 +138,7 @@ class GameBot(
                         throw e
                     } catch (e: Exception) {
                         // Ошибка в одном сообщении не должна останавливать бота
+                        log("Ошибка при обработке: ${e::class.simpleName}: ${e.message}")
                     }
                     offset = update.updateId + 1
                     onOffset(offset)
@@ -135,6 +147,7 @@ class GameBot(
                 throw e
             } catch (e: TelegramException) {
                 if (e.code == 401 || e.code == 404) {
+                    log("Telegram отклонил токен (${e.code}): ${e.message}")
                     _status.value = BotStatus.Failed("Неверный токен бота")
                     return
                 }
@@ -153,6 +166,7 @@ class GameBot(
 
     private suspend fun waitBeforeRetry(reason: String, failures: Int, retryAfter: Int? = null): Int {
         val seconds = retryAfter ?: BACKOFF[failures.coerceAtMost(BACKOFF.lastIndex)]
+        log("$reason — повтор через $seconds с")
         _status.value = BotStatus.Offline(reason, seconds)
         delay(seconds * 1000L)
         return failures + 1
@@ -166,17 +180,21 @@ class GameBot(
             while (true) {
                 try {
                     api.send(message)
+                    if (message !is Outgoing.Answer) log("→ ${message.describe()}")
                     break
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: TelegramException) {
                     if (e.code == 429) {
+                        log("Лимит Telegram, жду ${e.retryAfter ?: 1} с")
                         delay((e.retryAfter ?: 1) * 1000L)
                         continue
                     }
                     // Остальные ошибки Telegram (сообщение не изменилось, игрок заблокировал бота…) — не повторяем
+                    if (e.message?.contains("not modified") != true) log("Не отправлено (${message.describe()}): ${e.message}")
                     break
                 } catch (e: Exception) {
+                    if (failures == 0) log("Нет связи при отправке (${message.describe()}), повторяю")
                     delay(BACKOFF[failures.coerceAtMost(BACKOFF.lastIndex)] * 1000L)
                     failures++
                 }
@@ -187,6 +205,8 @@ class GameBot(
     // ─── Обработка ───────────────────────────────────────────────────────────
 
     internal fun handle(update: TgUpdate) {
+        update.message?.let { m -> log("← ${m.from?.displayName} (${m.from?.id}): ${m.text ?: "[не текст]"}") }
+        update.callback?.let { c -> log("← ${c.from.displayName} (${c.from.id}): кнопка ${c.data}") }
         update.message?.let(::handleMessage)
         update.callback?.let(::handleCallback)
     }
@@ -232,6 +252,7 @@ class GameBot(
             enqueue(Outgoing.Send(chatId, "У страны ${country.html()} уже есть глава. Обратитесь к ведущему."))
             return
         }
+        log("Привязка: ${user.displayName} (${user.id}) → $country")
         host.update { s ->
             // Один игрок — одна страна: старая привязка снимается
             val others = s.leaders.filterValues { it.telegramId != user.id }
@@ -287,6 +308,7 @@ class GameBot(
                     }
                 }
             } catch (e: ActionError) {
+                log("Отклонено для $country: ${e.message}")
                 enqueue(Outgoing.Answer(callback.id, e.message, alert = true))
                 return
             } catch (e: IndexOutOfBoundsException) {

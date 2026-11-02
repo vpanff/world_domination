@@ -1,6 +1,7 @@
 package wd.app
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,7 @@ data class AppSettings(
 )
 
 private const val SETTINGS = "settings"
+private const val LOG_LIMIT = 500
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 /**
@@ -37,6 +39,23 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
 
     var bot by mutableStateOf<GameBot?>(null)
         private set
+
+    /** Журнал бота для консоли (клавиша ` или кнопка «Логи»). */
+    val botLog = mutableStateListOf<String>()
+
+    var consoleOpen by mutableStateOf(false)
+
+    /** Горячие клавиши выключены на экранах с полями ввода. */
+    var hotkeysEnabled = true
+
+    fun toggleConsole() {
+        consoleOpen = !consoleOpen
+    }
+
+    private fun log(line: String) {
+        botLog += line
+        if (botLog.size > LOG_LIMIT) botLog.removeRange(0, botLog.size - LOG_LIMIT)
+    }
 
     /** Платформа узнаёт, что бот запущен или остановлен (Android держит фоновую службу). */
     var onBotRunningChanged: (Boolean) -> Unit = {}
@@ -74,6 +93,7 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
             scope = scope,
             offset = settings.botOffset,
             onOffset = { saveSettings(settings.copy(botOffset = it)) },
+            onLog = ::log,
         )
         bot = newBot
         newBot.start()

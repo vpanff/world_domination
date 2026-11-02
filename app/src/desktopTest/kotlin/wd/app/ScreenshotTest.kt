@@ -60,6 +60,21 @@ class ScreenshotTest {
     @Test
     fun screens() {
         shot("menu", 1400, 900) { App(session()) }
+        shot("console", 1000, 700) {
+            val session = midGame()
+            session.botLog += listOf(
+                "12:00:01  Запуск бота",
+                "12:00:02  Подключено как @wd_test_bot",
+                "12:00:02  Связь с Telegram есть, жду сообщений",
+                "12:00:10  ← Вова (42): /start abcd2345",
+                "12:00:10  Привязка: Вова (42) → Россия",
+                "12:00:11  → сообщение в чат 42: Вы — глава страны Россия",
+                "12:01:00  Нет связи с Telegram — повтор через 2 с",
+                "12:01:05  Не отправлено (сообщение в чат 7): Forbidden: bot was blocked by the user",
+            )
+            session.consoleOpen = true
+            App(session)
+        }
         shot("bot_panel", 360, 600) {
             val config = Memory().apply { files["settings"] = """{"botToken":"123:abc"}""" }
             val session = HostSession(Memory(), config, CoroutineScope(Dispatchers.Unconfined))
