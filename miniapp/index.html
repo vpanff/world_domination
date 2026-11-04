@@ -56,6 +56,12 @@
   .order button { padding: 4px 10px; background: transparent; color: var(--red); font-size: 18px; }
   label.ready { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-weight: 600; }
   label.ready input { width: 22px; height: 22px; accent-color: var(--green); }
+  details.report { margin-top: 10px; }
+  details.report summary { font-weight: 600; cursor: pointer; padding: 4px 0; }
+  .line { padding: 3px 0; }
+  .event { margin-top: 10px; background: rgba(245,184,0,.18); }
+  .dev { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
+  .dev.me { font-weight: 700; }
   #fallback { position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 14px; font-weight: 700; }
   #error { color: var(--red); white-space: pre-wrap; }
 </style>
@@ -86,6 +92,11 @@ const DEMO = {
   o: [[1, "США", [["Лос-Анджелес", 1], ["Нью-Йорк", 0], ["Вашингтон", 1], ["Чикаго", 1]]],
       [2, "Китай", [["Пекин", 1], ["Шанхай", 1], ["Ухань", 1], ["Гуанчжоу", 1]]]],
   q: [["u", 1]], r: false,
+  ev: "🏗 Строительный бум: улучшение городов на 25% дешевле на один ход",
+  ep: 91,
+  rc: [["up", 0, 0, 2], ["bo"], ["br", 1, 2], ["ls", 1, 1], ["sh", 0, 2], ["in", 420, 760]],
+  rw: [["ev", "🌋 Извержение супервулкана: экология −10%"], ["cd", 2, 0]],
+  dt: 3, dv: [[2, 200, 25], [0, 175, -25], [1, 125]],
 };
 
 function decodeState() {
@@ -152,6 +163,63 @@ function describe(o) {
   }
 }
 
+// ─── Отчёт ─────────────────────────────────────────────────────────────────
+// Тексты повторяют playerText в core/src/commonMain/kotlin/wd/core/Text.kt
+
+const countryName = k => (S.o.find(c => c[0] === k) || [k, S.c])[1];
+const cityName = (k, i) => { const c = S.o.find(x => x[0] === k); return c ? c[2][i][0] : S.ci[i][0]; };
+const cityRef = (k, i) => cityName(k, i) + " (" + countryName(k) + ")";
+
+function reportLine(e) {
+  switch (e[0]) {
+    case "sb": return "🛡 " + cityName(e[1], e[2]) + ": поставлен щит";
+    case "up": return "⬆ " + cityName(e[1], e[2]) + ": улучшен до ур." + e[3];
+    case "rs": return "🔬 Начато исследование, будет готово в конце следующего хода";
+    case "bo": return "💣 Заказана бомба";
+    case "ef": return "🌿 Вложение в экологию";
+    case "ld": return "☢ Удар по " + cityRef(e[1], e[2]) + ": город уничтожен";
+    case "ls": return "💥 Удар по " + cityRef(e[1], e[2]) + ": щит поглотил удар";
+    case "la": return "⚠ Удар по " + cityRef(e[1], e[2]) + ": цель уже уничтожена, бомба сохранена";
+    case "sh": return "🛡 " + cityName(e[1], e[2]) + ": щит поглотил удар и разрушен";
+    case "tr": return "✓ Технология изучена";
+    case "br": return "✓ Готово бомб: +" + e[1] + ", всего " + e[2];
+    case "in": return "💰 Доход: +" + e[1] + "$, баланс " + e[2] + "$";
+    case "af": return "⚠ " + e[1].charAt(0).toUpperCase() + e[1].slice(1);
+    case "cd": return "☢ " + cityRef(e[1], e[2]) + ": город уничтожен";
+    case "ev": return e[1];
+  }
+  return "";
+}
+
+function ecologyLine() {
+  const delta = S.e - S.ep;
+  if (delta === 0) return "🌍 Экология не изменилась: " + S.e + "%";
+  return "🌍 Экология: " + S.ep + "% → " + S.e + "% (" + (delta > 0 ? "+" + delta : "−" + -delta) + ")";
+}
+
+const lines = items => items.map(text => el("div", { class: "line" }, text));
+const signed = n => n >= 0 ? " (+" + n + ")" : " (−" + -n + ")";
+
+let reportOpen = true;
+
+function reportView() {
+  const hasReport = S.ep !== undefined;
+  if (!hasReport && !S.dv) return null;
+  const parts = [];
+  if (S.rc && S.rc.length) parts.push(el("h2", {}, "События в стране"), el("div", { class: "card" }, lines(S.rc.map(reportLine))));
+  if (hasReport) parts.push(el("h2", {}, "События в мире"), el("div", { class: "card" }, lines([ecologyLine(), ...S.rw.map(reportLine)])));
+  if (S.dv) parts.push(
+    el("h2", {}, "Доклад об уровне жизни · ход " + S.dt),
+    el("div", { class: "card" }, S.dv.map((d, i) => {
+      const me = !S.o.some(c => c[0] === d[0]);
+      return el("div", { class: "dev" + (me ? " me" : "") },
+        el("span", {}, (i + 1) + ". " + countryName(d[0])),
+        el("span", {}, d[1] + (d[2] === undefined ? "" : signed(d[2]))));
+    })));
+  return el("details", { class: "report", open: reportOpen, ontoggle: e => { reportOpen = e.target.open; } },
+    el("summary", {}, "Отчёт за прошлый ход"), parts);
+}
+
 function haptic() {
   if (insideTelegram && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
 }
@@ -162,6 +230,8 @@ function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (k === "onclick") node.onclick = v;
+    else if (k === "ontoggle") node.ontoggle = v;
+    else if (k === "open") node.open = v;
     else if (k === "disabled") node.disabled = v;
     else if (k === "checked") node.checked = v;
     else node.setAttribute(k, v);
@@ -189,6 +259,9 @@ function render() {
           el("div", { class: "hint" }, "доступно из " + S.b + "$")),
         el("div", { class: "hint", style: "text-align:right" },
           "💣 свободно: " + freeBombs(), el("br"), "🔬 технология: " + techText))),
+
+    S.ev ? el("div", { class: "card event" }, S.ev) : null,
+    reportView(),
 
     el("h2", {}, "Мои города"),
     el("div", { class: "card" }, S.ci.map((c, i) => {

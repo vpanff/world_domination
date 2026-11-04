@@ -36,7 +36,7 @@ data class Country(
 
     fun income(rules: Rules): Int = cities.filter { it.alive }.sumOf { rules.income(it.level) }
 
-    fun score(rules: Rules): Int = cities.filter { it.alive }.sumOf { rules.score(it.level) }
+    fun development(rules: Rules): Int = cities.filter { it.alive }.sumOf { rules.development(it.level) }
 
     fun updateCity(name: String, change: (City) -> City): Country =
         copy(cities = cities.map { if (it.name == name) change(it) else it })
@@ -76,6 +76,24 @@ sealed interface GameResult {
     data object AllDestroyed : GameResult
 }
 
+@Serializable
+enum class WorldEventType { CRISIS, VOLCANO, BUILDING_BOOM, GREEN_SUMMIT, SCIENCE_BREAKTHROUGH, INTEL_LEAK }
+
+/**
+ * Глобальный ивент, действует один ход на все страны одинаково.
+ * [value] — проценты скидки или потери дохода; для вулкана — потеря экологии; для утечки — число бомб в мире.
+ */
+@Serializable
+data class WorldEvent(val type: WorldEventType, val value: Int)
+
+/** Развитие страны в докладе; [change] — изменение с прошлого доклада. */
+@Serializable
+data class DevelopmentEntry(val country: String, val value: Int, val change: Int? = null)
+
+/** Доклад о развитии, опубликованный в начале хода [turn]. */
+@Serializable
+data class DevelopmentReport(val turn: Int, val entries: List<DevelopmentEntry>)
+
 /** Глава страны в Telegram. */
 @Serializable
 data class Leader(val telegramId: Long, val name: String)
@@ -101,6 +119,10 @@ data class GameState(
     val invites: Map<String, String> = emptyMap(),
     /** Страны, отметившие, что закончили ход. Сбрасывается при расчёте хода. */
     val ready: Set<String> = emptySet(),
+    /** Ивент текущего хода. Не больше одного за ход, сбрасывается при расчёте. */
+    val activeEvent: WorldEvent? = null,
+    /** Последний опубликованный доклад о развитии. */
+    val developmentReport: DevelopmentReport? = null,
 ) {
     val isOver: Boolean get() = result != null
 
@@ -115,7 +137,28 @@ data class GameState(
     /** Баланс за вычетом действий, уже стоящих в очереди. */
     fun availableBalance(country: String): Int {
         val c = country(country) ?: return 0
-        return c.balance - pendingOf(country).sumOf { rules.cost(it.type) }
+        return c.balance - pendingOf(country).sumOf { cost(it.type) }
+    }
+
+    /** Цена действия в этом ходу с учётом ивента. */
+    fun cost(type: ActionType): Int {
+        val base = rules.cost(type)
+        val event = activeEvent ?: return base
+        val discounted = when (event.type) {
+            WorldEventType.BUILDING_BOOM -> ActionType.UPGRADE
+            WorldEventType.GREEN_SUMMIT -> ActionType.ECOLOGY
+            WorldEventType.SCIENCE_BREAKTHROUGH -> ActionType.RESEARCH
+            else -> return base
+        }
+        if (type != discounted) return base
+        return (base * (100 - event.value) / 100 + 2) / 5 * 5   // до круглых 5$
+    }
+
+    /** Доход страны в этом ходу с учётом ивента. */
+    fun incomeOf(country: Country): Int {
+        val income = country.income(rules)
+        val event = activeEvent
+        return if (event?.type == WorldEventType.CRISIS) income * (100 - event.value) / 100 else income
     }
 
     fun countryOfLeader(telegramId: Long): String? =

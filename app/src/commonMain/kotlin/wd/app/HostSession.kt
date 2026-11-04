@@ -82,6 +82,7 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
     private fun onStateChanged(old: GameState, new: GameState) {
         saves.autosave(new)
         if (new.turn != old.turn) bot?.broadcastTurn()
+        else if (new.activeEvent != old.activeEvent) bot?.broadcastEvent()
     }
 
     // ─── Бот ─────────────────────────────────────────────────────────────────

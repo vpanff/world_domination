@@ -12,8 +12,12 @@ import wd.core.ActionType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import wd.core.CityRef
+import wd.core.GameSetup
 import wd.core.Leader
+import wd.core.Rules
+import wd.core.WorldEventType
 import wd.core.newGame
+import wd.core.triggerEvent
 import java.io.File
 import kotlin.test.Test
 
@@ -43,7 +47,7 @@ class ScreenshotTest {
 
     private fun midGame(): HostSession {
         val session = session()
-        session.open(newGame())
+        session.open(newGame(GameSetup(rules = Rules(startBombs = 1))))
         val c = session.controller!!
         c.add(ActionType.UPGRADE, "Россия", CityRef("Россия", "Москва"))
         c.add(ActionType.SHIELD, "США", CityRef("США", "Нью-Йорк"))
@@ -53,6 +57,7 @@ class ScreenshotTest {
         c.resolve()
         c.add(ActionType.UPGRADE, "Россия", CityRef("Россия", "Москва"))
         c.add(ActionType.ECOLOGY, "Израиль")
+        c.update { it.triggerEvent(WorldEventType.BUILDING_BOOM) }
         c.update { it.copy(leaders = mapOf("Россия" to Leader(1, "Вова"), "США" to Leader(2, "Анна")), ready = setOf("США")) }
         return session
     }

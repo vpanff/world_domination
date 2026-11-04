@@ -88,6 +88,11 @@ data class EcologyChanged(val from: Int, val to: Int) : GameEvent {
     override val audience: String? get() = null
 }
 
+@Serializable @SerialName("world_event")
+data class WorldEventHappened(val event: WorldEvent) : GameEvent {
+    override val audience: String? get() = null
+}
+
 @Serializable @SerialName("game_over")
 data class GameOver(val result: GameResult) : GameEvent {
     override val audience: String? get() = null

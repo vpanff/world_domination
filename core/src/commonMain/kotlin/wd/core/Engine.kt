@@ -1,9 +1,12 @@
 package wd.core
 
+import kotlin.random.Random
+
 /*
  * Применение действий и расчёт хода.
  *
  * Порядок внутри хода:
+ *   0. Экология от ивента
  *   1. Щиты
  *   2. Улучшения / исследования / производство / экология (в порядке очереди)
  *   3. Запуски бомб — одновременно: страна, уничтоженная в этой фазе,
@@ -26,7 +29,7 @@ fun GameState.validate(type: ActionType, countryName: String, target: CityRef? =
     fun queuedCount(t: ActionType, ref: CityRef? = null) =
         queued.count { it.type == t && (ref == null || it.target == ref) }
 
-    val cost = rules.cost(type)
+    val cost = cost(type)
     val available = availableBalance(countryName)
     if (available < cost) throw ActionError("Недостаточно средств (нужно $cost$, доступно $available$)")
 
@@ -73,11 +76,32 @@ fun GameState.cancelAction(id: Int): GameState {
     return copy(pending = pending.filterNot { it.id == id })
 }
 
+// ─── Ивенты ──────────────────────────────────────────────────────────────────
+
+/** Ивенты, которые могут выпасть в этом ходу. */
+fun GameState.possibleEvents(): List<WorldEventType> =
+    WorldEventType.entries.filter { it != WorldEventType.VOLCANO || ecology >= rules.volcanoMinEcology }
+
+fun GameState.triggerEvent(type: WorldEventType): GameState {
+    if (isOver) throw ActionError("Игра окончена")
+    if (activeEvent != null) throw ActionError("В этом ходу ивент уже был")
+    if (type !in possibleEvents()) throw ActionError("Этот ивент сейчас не может выпасть")
+    val value = when (type) {
+        WorldEventType.VOLCANO -> -rules.ecologyVolcano
+        WorldEventType.INTEL_LEAK -> aliveCountries().sumOf { it.bombs }
+        else -> rules.eventPercent
+    }
+    return copy(activeEvent = WorldEvent(type, value))
+}
+
+fun GameState.triggerRandomEvent(random: Random = Random): GameState =
+    triggerEvent(possibleEvents().random(random))
+
 // ─── Применение одного действия ──────────────────────────────────────────────
 
 private fun GameState.apply(action: Action, events: MutableList<GameEvent>): GameState {
     val country = country(action.country) ?: return this
-    val cost = rules.cost(action.type)
+    val cost = cost(action.type)
     if (country.balance < cost) {
         events += ActionFailed(country.name, "не хватило денег на «${action.type.title()}»")
         return this
@@ -157,6 +181,10 @@ fun GameState.resolveTurn(): GameState {
     val ecologyBefore = ecology
 
     var state = copy(pending = emptyList(), ready = emptySet())
+    activeEvent?.let { event ->
+        events += WorldEventHappened(event)
+        if (event.type == WorldEventType.VOLCANO) state = state.changeEcology(-event.value)
+    }
     val ordered = pending.sortedBy { it.type.priority }   // сортировка стабильная
 
     for (action in ordered.filter { it.type != ActionType.LAUNCH }) {
@@ -179,7 +207,7 @@ fun GameState.resolveTurn(): GameState {
             country = country.copy(bombs = country.bombs + country.bombsInProduction, bombsInProduction = 0)
             events += BombsReady(country.name, c.bombsInProduction, country.bombs)
         }
-        val income = country.income(rules)
+        val income = state.incomeOf(country)
         country = country.copy(balance = country.balance + income)
         events += IncomeReceived(country.name, income, country.balance)
         country
@@ -190,11 +218,28 @@ fun GameState.resolveTurn(): GameState {
     val result = state.checkResult()
     if (result != null) events += GameOver(result)
 
+    val nextTurn = turn + 1
     return state.copy(
-        turn = turn + 1,
+        turn = nextTurn,
         result = result,
         log = log + TurnLog(turn, events),
+        activeEvent = null,
+        developmentReport = if (result == null && state.isDevelopmentTurn(nextTurn)) state.buildDevelopmentReport(nextTurn)
+        else developmentReport,
     )
+}
+
+private fun GameState.isDevelopmentTurn(turn: Int): Boolean =
+    turn >= rules.developmentFirstTurn && (turn - rules.developmentFirstTurn) % rules.developmentInterval == 0
+
+private fun GameState.buildDevelopmentReport(turn: Int): DevelopmentReport {
+    val step = rules.developmentRounding
+    val entries = aliveCountries().map { c ->
+        val value = (c.development(rules) + step / 2) / step * step
+        val previous = developmentReport?.entries?.find { it.country == c.name }?.value
+        DevelopmentEntry(c.name, value, previous?.let { value - it })
+    }
+    return DevelopmentReport(turn, entries.sortedByDescending { it.value })
 }
 
 private fun GameState.checkResult(): GameResult? {

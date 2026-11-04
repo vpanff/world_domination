@@ -17,6 +17,8 @@ import wd.core.GameState
 import wd.core.Leader
 import wd.core.addAction
 import wd.core.cancelAction
+import wd.core.describe
+import wd.core.icon
 
 /** Партия, которой управляет бот. Все вызовы — из главного потока. */
 interface GameHost {
@@ -91,14 +93,28 @@ class GameBot(
 
     // ─── Рассылки по инициативе ведущего ─────────────────────────────────────
 
-    /** Каждому главе — личный отчёт и новая панель хода. */
+    /** Каждому главе — личный отчёт, доклад о развитии (если он вышел в этом ходу) и новая панель хода. */
     fun broadcastTurn() {
         val state = host.state ?: return
-        for ((country, leader) in state.leaders) sendReport(state, country, leader.telegramId)
+        for ((country, leader) in state.leaders) sendReport(state, country, leader.telegramId, withDevelopment = true)
     }
 
-    private fun sendReport(state: GameState, country: String, chatId: Long) {
+    /** Ивент выпал или ведущий его отменил: цены изменились, поэтому панель и кнопка мини-приложения — свежие. */
+    fun broadcastEvent() {
+        val state = host.state ?: return
+        val event = state.activeEvent
+        val text = if (event != null) "${event.icon()} <b>Мировое событие</b>\n${event.describe().html()}"
+        else "↩ Ведущий отменил мировое событие этого хода."
+        for ((country, leader) in state.leaders) {
+            enqueue(Outgoing.Send(leader.telegramId, text, reply = miniAppKeyboard(state, country)))
+            if (canOrder(state, country)) sendPanel(state, country, leader.telegramId)
+        }
+    }
+
+    private fun sendReport(state: GameState, country: String, chatId: Long, withDevelopment: Boolean = false) {
         enqueue(Outgoing.Send(chatId, BotText.report(state, country), reply = miniAppKeyboard(state, country), removeReply = !canOrder(state, country)))
+        val development = state.developmentReport?.takeIf { withDevelopment && it.turn == state.turn }
+        development?.let { enqueue(Outgoing.Send(chatId, BotText.development(it))) }
         sendPanel(state, country, chatId)
     }
 

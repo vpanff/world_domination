@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalCoroutinesApi::class)
+@file:OptIn(ExperimentalCoroutinesApi::class, kotlin.io.encoding.ExperimentalEncodingApi::class)
 
 package wd.bot
 
@@ -15,10 +15,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import wd.core.ActionType
+import wd.core.DevelopmentEntry
+import wd.core.DevelopmentReport
+import wd.core.GameSetup
 import wd.core.GameState
 import wd.core.Leader
+import wd.core.Rules
+import wd.core.WorldEventType
 import wd.core.addAction
 import wd.core.newGame
+import wd.core.resolveTurn
+import wd.core.triggerEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -68,7 +75,8 @@ private fun callback(userId: Long, data: String) = TgUpdate(
 
 class GameBotTest {
     private val telegram = FakeTelegram()
-    private val host = FakeHost(newGame())
+    /** Стартовых бомб нет: тестам ударов бомба выдаётся сразу. */
+    private val host = FakeHost(newGame(GameSetup(rules = Rules(startBombs = 1))))
 
     private fun TestScope.startBot(miniApp: String? = null): GameBot =
         GameBot(TelegramApi("TOKEN", telegram), host, backgroundScope, miniAppUrl = miniApp).also {
@@ -275,5 +283,94 @@ class GameBotTest {
         runCurrent()
         val report = telegram.sent("sendMessage").first()
         assertTrue(report["reply_markup"]!!.jsonObject.containsKey("keyboard"))
+    }
+
+    @Test
+    fun reportHasCountryAndWorldSections() {
+        val s = host.state!!
+            .addAction(ActionType.UPGRADE, "Россия", wd.core.CityRef("Россия", "Москва"))
+            .addAction(ActionType.UPGRADE, "США", wd.core.CityRef("США", "Чикаго"))
+            .addAction(ActionType.LAUNCH, "Китай", wd.core.CityRef("США", "Нью-Йорк"))
+            .addAction(ActionType.RESEARCH, "Китай")
+            .resolveTurn()
+        val report = BotText.report(s, "Россия")
+        assertTrue(report.contains("<b>События в стране</b>"))
+        assertTrue(report.contains("Москва: улучшен до ур.1"))
+        assertTrue(report.contains("<b>События в мире</b>"))
+        assertTrue(report.contains("Экология: 100% → ${s.ecology}% (−${100 - s.ecology})"))
+        assertTrue(report.contains("Нью-Йорк (США): город уничтожен"))
+        assertTrue(!report.contains("Чикаго: улучшен"), "чужие улучшения скрыты")
+    }
+
+    @Test
+    fun developmentReportGoesToEveryoneOnItsTurn() = runTest {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А"), "США" to Leader(8, "Б")))
+        val bot = startBot()
+        bot.broadcastTurn()
+        runCurrent()
+        assertTrue(telegram.texts().none { it.contains("Доклад") }, "на первом ходу доклада нет")
+
+        host.state = host.state!!.resolveTurn().resolveTurn()
+        bot.broadcastTurn()
+        runCurrent()
+        val reports = telegram.sent("sendMessage").filter { it["text"]!!.jsonPrimitive.content.contains("Доклад") }
+        assertEquals(setOf(7L, 8L), reports.map { it["chat_id"]!!.jsonPrimitive.long }.toSet())
+    }
+
+    @Test
+    fun developmentTextShowsChange() {
+        val text = BotText.development(DevelopmentReport(5, listOf(DevelopmentEntry("А", 100, 25), DevelopmentEntry("Б", 50, -25), DevelopmentEntry("В", 25))))
+        assertTrue(text.contains("1. А — 100 (+25)"))
+        assertTrue(text.contains("2. Б — 50 (−25)"))
+        assertTrue(text.contains("3. В — 25\n") || text.endsWith("3. В — 25"))
+    }
+
+    @Test
+    fun eventIsAnnouncedWithFreshPrices() = runTest {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")))
+        val bot = startBot("https://example.org/app/")
+        host.state = host.state!!.triggerEvent(WorldEventType.SCIENCE_BREAKTHROUGH)
+        bot.broadcastEvent()
+        runCurrent()
+
+        val sent = telegram.sent("sendMessage")
+        assertTrue(sent[0]["text"]!!.jsonPrimitive.content.contains("Научный прорыв"))
+        assertTrue(sent[0]["reply_markup"]!!.jsonObject.containsKey("keyboard"), "новая кнопка мини-приложения со скидкой")
+        val buttons = sent[1]["reply_markup"].toString()
+        assertTrue(buttons.contains("Исследование 375$"))
+
+        val state = Json.parseToJsonElement(MiniApp.encodeState(host.state!!, "Россия")).jsonObject
+        assertEquals(375, state["cost"]!!.jsonArray[2].jsonPrimitive.content.toInt())
+        assertTrue(state["ev"]!!.jsonPrimitive.content.contains("Научный прорыв"))
+    }
+
+    @Test
+    fun miniAppCarriesCompactReport() {
+        val s = host.state!!
+            .addAction(ActionType.UPGRADE, "Россия", wd.core.CityRef("Россия", "Владивосток"))
+            .addAction(ActionType.LAUNCH, "Китай", wd.core.CityRef("США", "Нью-Йорк"))
+            .addAction(ActionType.LAUNCH, "Россия", wd.core.CityRef("Китай", "Ухань"))
+            .resolveTurn().resolveTurn()
+        val json = Json.parseToJsonElement(MiniApp.encodeState(s, "Россия")).jsonObject
+        assertEquals(s.ecology, json["ep"]!!.jsonPrimitive.content.toInt())
+        assertEquals(3, json["dt"]!!.jsonPrimitive.content.toInt())
+        assertEquals(5, json["dv"]!!.jsonArray.size)
+        assertTrue(json["rc"]!!.jsonArray.any { it.jsonArray[0].jsonPrimitive.content == "in" })
+
+        val first = s.copy(log = s.log.dropLast(1))
+        val before = Json.parseToJsonElement(MiniApp.encodeState(first, "Россия")).jsonObject
+        val codes = before["rc"]!!.jsonArray.map { it.jsonArray[0].jsonPrimitive.content }
+        assertTrue("up" in codes && "ld" in codes)
+        assertTrue(before["rw"]!!.jsonArray.any { it.toString() == """["cd",1,1]""" })
+    }
+
+    @Test
+    fun longUrlDropsReport() {
+        val long = "https://example.org/" + "x".repeat(2000)
+        val url = MiniApp.url(long, host.state!!.resolveTurn().resolveTurn(), "Россия")
+        val payload = url.substringAfter("?s=")
+        val decoded = kotlin.io.encoding.Base64.UrlSafe
+            .withPadding(kotlin.io.encoding.Base64.PaddingOption.ABSENT).decode(payload).decodeToString()
+        assertTrue(!decoded.contains("\"rc\""))
     }
 }

@@ -3,9 +3,12 @@ package wd.bot
 import wd.core.Action
 import wd.core.ActionType
 import wd.core.CityRef
+import wd.core.DevelopmentReport
 import wd.core.GameState
 import wd.core.describe
+import wd.core.ecologyChangeText
 import wd.core.icon
+import wd.core.playerText
 import wd.core.reportFor
 import wd.core.validate
 
@@ -43,10 +46,20 @@ object BotText {
         val me = r.me
         return buildString {
             appendLine("🌍 <b>Ход ${r.turn}</b> · Экология ${r.ecology}%")
-            if (r.events.isNotEmpty()) {
+            r.activeEvent?.let {
                 appendLine()
-                appendLine("<b>События прошлого хода</b>")
-                for (e in r.events) appendLine("${e.icon()} ${e.describe().html()}")
+                appendLine("${it.icon()} <b>Ивент хода:</b> ${it.describe().html()}")
+            }
+            if (r.countryEvents.isNotEmpty()) {
+                appendLine()
+                appendLine("<b>События в стране</b>")
+                for (e in r.countryEvents) appendLine("${e.icon()} ${e.playerText().html()}")
+            }
+            r.ecologyBefore?.let { before ->
+                appendLine()
+                appendLine("<b>События в мире</b>")
+                appendLine("🌍 ${ecologyChangeText(before, r.ecology)}")
+                for (e in r.worldEvents) appendLine("${e.icon()} ${e.playerText().html()}")
             }
             appendLine()
             appendLine("<b>Ваша страна — ${me.name.html()}</b>")
@@ -81,6 +94,17 @@ object BotText {
         }.trimEnd()
     }
 
+    /** Доклад о развитии стран. Один и тот же для всех. */
+    fun development(report: DevelopmentReport): String = buildString {
+        appendLine("📊 <b>Доклад международной службы об уровне жизни</b>")
+        appendLine("Индекс развития стран, ход ${report.turn}:")
+        appendLine()
+        report.entries.forEachIndexed { i, e ->
+            val change = e.change?.let { if (it >= 0) " (+$it)" else " (−${-it})" }.orEmpty()
+            appendLine("${i + 1}. ${e.country.html()} — ${e.value}$change")
+        }
+    }.trimEnd()
+
     /** Панель хода: краткое состояние и кнопки приказов. */
     fun panel(state: GameState, country: String, view: PanelView = PanelView.MAIN): Pair<String, Keyboard?> {
         val me = state.country(country) ?: return "Страна не найдена" to null
@@ -96,6 +120,7 @@ object BotText {
             appendLine("<b>Ход $t · ${country.html()}</b>")
             appendLine("💰 Доступно: ${state.availableBalance(country)}$ из ${me.balance}$")
             appendLine("💣 Свободных бомб: $freeBombs")
+            state.activeEvent?.let { appendLine("${it.icon()} ${it.describe().html()}") }
             appendLine()
             if (pending.isEmpty()) appendLine("Приказов пока нет")
             else {
@@ -124,13 +149,12 @@ object BotText {
                         row += Button("🛡 ${city.name}", "s:$t:$i")
                     if (row.isNotEmpty()) rows += row
                 }
-                val rules = state.rules
                 rows += listOfNotNull(
-                    Button("🔬 Исследование ${rules.costResearch}$", "r:$t").takeIf { state.can(ActionType.RESEARCH, country) },
-                    Button("💣 Бомба ${rules.costProduce}$", "p:$t").takeIf { state.can(ActionType.PRODUCE, country) },
+                    Button("🔬 Исследование ${state.cost(ActionType.RESEARCH)}$", "r:$t").takeIf { state.can(ActionType.RESEARCH, country) },
+                    Button("💣 Бомба ${state.cost(ActionType.PRODUCE)}$", "p:$t").takeIf { state.can(ActionType.PRODUCE, country) },
                 )
                 rows += listOfNotNull(
-                    Button("🌿 Экология ${rules.costEcology}$", "e:$t").takeIf { state.can(ActionType.ECOLOGY, country) },
+                    Button("🌿 Экология ${state.cost(ActionType.ECOLOGY)}$", "e:$t").takeIf { state.can(ActionType.ECOLOGY, country) },
                     Button("🚀 Запуск", "v:$t:${PanelView.LAUNCH.ordinal}").takeIf { freeBombs > 0 },
                 )
                 rows += listOfNotNull(

@@ -9,7 +9,9 @@ import wd.core.CityRef
 import wd.core.GameState
 import wd.core.addAction
 import wd.core.cancelAction
+import wd.core.describe
 import wd.core.resolveTurn
+import wd.core.triggerRandomEvent
 import wd.core.validate
 
 private const val HISTORY_LIMIT = 100
@@ -44,6 +46,11 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
     fun resolve() {
         launchFrom = null
         change { it.resolveTurn() }
+    }
+
+    fun triggerRandomEvent() {
+        change { it.triggerRandomEvent() }
+        state.activeEvent?.let { message = it.describe() }
     }
 
     fun unbind(country: String) = change { it.copy(leaders = it.leaders - country, ready = it.ready - country) }

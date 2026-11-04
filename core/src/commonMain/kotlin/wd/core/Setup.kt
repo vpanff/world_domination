@@ -35,7 +35,7 @@ fun newGame(setup: GameSetup = GameSetup()): GameState {
         require(cities.toSet().size == cities.size) { "В стране ${c.name} названия городов повторяются" }
     }
 
-    val rules = setup.rules
+    val rules = setup.rules.forCountries(setup.countries.size)
     val state = GameState(
         rules = rules,
         ecology = rules.startEcology,

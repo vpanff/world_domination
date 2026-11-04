@@ -169,7 +169,7 @@ private fun CountryCard(c: GameController, country: Country) {
                 "${country.balance}$" + if (available != country.balance) " (доступно $available$)" else "",
                 color = Palette.yellow,
             )
-            Txt("доход +${country.income(state.rules)}$   очки ${country.score(state.rules)}", color = Palette.dim, size = 13.sp)
+            Txt("доход +${state.incomeOf(country)}$   развитие ${country.development(state.rules)}", color = Palette.dim, size = 13.sp)
             val tech = when {
                 country.tech -> "есть"
                 country.techInResearch -> "исследуется"
@@ -185,9 +185,9 @@ private fun CountryCard(c: GameController, country: Country) {
         if (alive) {
             Spacer(Modifier.height(6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                ActionBtn(c, "Исслед. ${state.rules.costResearch}$", ActionType.RESEARCH, name)
-                ActionBtn(c, "Бомба ${state.rules.costProduce}$", ActionType.PRODUCE, name)
-                ActionBtn(c, "Эко ${state.rules.costEcology}$", ActionType.ECOLOGY, name)
+                ActionBtn(c, "Исслед. ${state.cost(ActionType.RESEARCH)}$", ActionType.RESEARCH, name)
+                ActionBtn(c, "Бомба ${state.cost(ActionType.PRODUCE)}$", ActionType.PRODUCE, name)
+                ActionBtn(c, "Эко ${state.cost(ActionType.ECOLOGY)}$", ActionType.ECOLOGY, name)
                 val freeBombs = country.bombs - state.pendingOf(name).count { it.type == ActionType.LAUNCH }
                 Btn(
                     if (attacking) "Отмена" else "Запуск",
@@ -277,7 +277,9 @@ private fun QueuePanel(c: GameController, modifier: Modifier) = SidePanel("ОЧ�
 
 @Composable
 private fun LogPanel(c: GameController, modifier: Modifier) = SidePanel("ЛОГ", modifier) {
-    Btn("Случайный ивент (скоро)", {}, Modifier.fillMaxWidth(), enabled = false)
+    val state = c.state
+    Btn("Случайный ивент", c::triggerRandomEvent, Modifier.fillMaxWidth(), enabled = !state.isOver && state.activeEvent == null)
+    state.activeEvent?.let { Txt(it.describe(), Modifier.padding(top = 6.dp), color = Palette.yellow, size = 13.sp) }
     Spacer(Modifier.height(6.dp))
     LazyColumn(contentPadding = PaddingValues(bottom = 8.dp)) {
         for (turnLog in c.state.log.asReversed()) {
