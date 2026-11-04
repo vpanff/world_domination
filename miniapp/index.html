@@ -75,7 +75,8 @@ window.onerror = (msg, src, line) => {
 };
 
 const tg = window.Telegram && window.Telegram.WebApp;
-const insideTelegram = !!(tg && tg.initData);
+// Не по initData: при запуске с кнопки клавиатуры (только там работает sendData) он пустой
+const insideTelegram = !!(tg && tg.platform !== "unknown");
 
 // Пример для открытия страницы в браузере без бота
 const DEMO = {
