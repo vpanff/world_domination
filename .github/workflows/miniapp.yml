@@ -1,0 +1,34 @@
+# Публикует мини-приложение (папка miniapp/) на GitHub Pages.
+# Один раз: Settings → Pages → Source: «GitHub Actions».
+
+name: Мини-приложение
+
+on:
+  push:
+    branches: [main]
+    paths: ["miniapp/**", ".github/workflows/miniapp.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: miniapp
+      - id: deployment
+        uses: actions/deploy-pages@v4
