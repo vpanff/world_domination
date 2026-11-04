@@ -28,6 +28,8 @@ import wd.core.GameState
 import wd.core.IncomeReceived
 import wd.core.LaunchOutcome
 import wd.core.LaunchResult
+import wd.core.MoneyReceived
+import wd.core.MoneySent
 import wd.core.ResearchStarted
 import wd.core.ShieldBuilt
 import wd.core.ShieldHit
@@ -40,7 +42,7 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 /** Приказ из мини-приложения: города и страны — индексами, как в кнопках бота. */
-data class MiniOrder(val type: ActionType, val countryIndex: Int? = null, val cityIndex: Int? = null)
+data class MiniOrder(val type: ActionType, val countryIndex: Int? = null, val cityIndex: Int? = null, val amount: Int? = null)
 
 data class MiniOrders(val turn: Int, val orders: List<MiniOrder>, val ready: Boolean)
 
@@ -57,7 +59,7 @@ object MiniApp {
 
     private val codes = mapOf(
         ActionType.UPGRADE to "u", ActionType.SHIELD to "s", ActionType.RESEARCH to "r",
-        ActionType.PRODUCE to "p", ActionType.ECOLOGY to "e", ActionType.LAUNCH to "l",
+        ActionType.PRODUCE to "p", ActionType.ECOLOGY to "e", ActionType.LAUNCH to "l", ActionType.TRANSFER to "t",
     )
     private val types = codes.entries.associate { (k, v) -> v to k }
 
@@ -104,6 +106,7 @@ object MiniApp {
             }
             putJsonArray("q") { for (a in state.pendingOf(country)) add(encodeOrder(state, a)) }
             put("r", country in state.ready)
+            put("tr", if (r.transfersEnabled) 1 else 0)
             state.activeEvent?.let { put("ev", "${it.icon()} ${it.describe()}") }
             if (withReport) {
                 val report = state.reportFor(country)
@@ -149,6 +152,8 @@ object MiniApp {
             is TechReady -> add("tr")
             is BombsReady -> { add("br"); add(e.count); add(e.total) }
             is IncomeReceived -> { add("in"); add(e.amount); add(e.balance) }
+            is MoneySent -> { add("ms"); add(state.countries.indexOfFirst { it.name == e.to }); add(e.amount) }
+            is MoneyReceived -> { add("mr"); add(state.countries.indexOfFirst { it.name == e.from }); add(e.amount) }
             is ActionFailed -> { add("af"); add(e.reason) }
             is CityDestroyed -> code("cd", e.target)
             is WorldEventHappened -> { add("ev"); add("${e.event.icon()} ${e.event.describe()}") }
@@ -167,6 +172,9 @@ object MiniApp {
                     val ki = state.countries.indexOfFirst { it.name == t!!.country }
                     add(ki); add(state.countries[ki].cities.indexOfFirst { it.name == t!!.city })
                 }
+                ActionType.TRANSFER -> {
+                    add(state.countries.indexOfFirst { it.name == a.toCountry }); add(a.amount)
+                }
                 else -> {}
             }
         }
@@ -181,6 +189,7 @@ object MiniApp {
             when (type) {
                 ActionType.UPGRADE, ActionType.SHIELD -> MiniOrder(type, cityIndex = parts[1].jsonPrimitive.int)
                 ActionType.LAUNCH -> MiniOrder(type, parts[1].jsonPrimitive.int, parts[2].jsonPrimitive.int)
+                ActionType.TRANSFER -> MiniOrder(type, parts[1].jsonPrimitive.int, amount = parts[2].jsonPrimitive.int)
                 else -> MiniOrder(type)
             }
         }

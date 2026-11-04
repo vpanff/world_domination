@@ -49,10 +49,12 @@ fun App(session: HostSession, onExit: (() -> Unit)? = null, backHandler: BackHan
         screen = Screen.GAME
     }
 
-    // «Назад»: консоль → закрыть, режим атаки → отмена, любой экран → меню, меню → выход
+    // «Назад»: консоль → закрыть, режим атаки или форма перевода → отмена, любой экран → меню, меню → выход
     backHandler(screen != Screen.MENU || session.consoleOpen) {
         if (session.consoleOpen) session.consoleOpen = false
-        else if (screen == Screen.GAME && controller?.launchFrom != null) controller.launchFrom = null else screen = Screen.MENU
+        else if (screen == Screen.GAME && controller?.launchFrom != null) controller.launchFrom = null
+        else if (screen == Screen.GAME && controller?.transferFrom != null) controller.transferFrom = null
+        else screen = Screen.MENU
     }
 
     Box(Modifier.fillMaxSize().background(Palette.bg).safeDrawingPadding()) {

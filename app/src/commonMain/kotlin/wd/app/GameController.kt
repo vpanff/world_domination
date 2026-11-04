@@ -8,10 +8,12 @@ import wd.core.ActionType
 import wd.core.CityRef
 import wd.core.GameState
 import wd.core.addAction
+import wd.core.addTransfer
 import wd.core.cancelAction
 import wd.core.describe
 import wd.core.resolveTurn
 import wd.core.triggerRandomEvent
+import wd.core.validateTransfer
 import wd.core.validate
 
 private const val HISTORY_LIMIT = 100
@@ -30,6 +32,9 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
     /** Страна, выбирающая цель для запуска; null — обычный режим. */
     var launchFrom by mutableStateOf<String?>(null)
 
+    /** Страна, для которой открыта форма перевода; null — форма закрыта. */
+    var transferFrom by mutableStateOf<String?>(null)
+
     var canUndo by mutableStateOf(false)
         private set
 
@@ -40,6 +45,14 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
 
     fun add(type: ActionType, country: String, target: CityRef? = null) =
         change { it.addAction(type, country, target) }
+
+    fun canTransfer(from: String, to: String, amount: Int): Boolean =
+        runCatching { state.validateTransfer(from, to, amount) }.isSuccess
+
+    fun transfer(from: String, to: String, amount: Int) {
+        change { it.addTransfer(from, to, amount) }
+        transferFrom = null
+    }
 
     fun cancel(id: Int) = change { it.cancelAction(id) }
 

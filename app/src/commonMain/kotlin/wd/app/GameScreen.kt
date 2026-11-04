@@ -195,7 +195,35 @@ private fun CountryCard(c: GameController, country: Country) {
                     enabled = !state.isOver && (attacking || freeBombs > 0),
                     color = Palette.red.copy(alpha = 0.6f),
                 )
+                if (state.rules.transfersEnabled) {
+                    val open = c.transferFrom == name
+                    Btn(if (open) "Отмена" else "Перевод", { c.transferFrom = if (open) null else name }, enabled = !state.isOver)
+                }
             }
+            if (c.transferFrom == name) TransferForm(c, name)
+        }
+    }
+}
+
+@Composable
+private fun TransferForm(c: GameController, from: String) {
+    val targets = c.state.aliveCountries().map { it.name }.filter { it != from }
+    var to by remember { mutableStateOf<String?>(null) }
+    var amount by remember { mutableStateOf("") }
+    val recipient = to?.takeIf { it in targets }
+    val sum = amount.toIntOrNull() ?: 0
+
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Txt("Кому перевести:", color = Palette.dim, size = 13.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (name in targets) {
+                Btn(name, { to = name }, color = if (name == recipient) Palette.accent else Palette.button, size = 13.sp)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Field(amount, { v -> amount = v.filter(Char::isDigit).take(9) }, Modifier.weight(1f), numeric = true)
+            Txt("$", color = Palette.yellow)
+            Btn("В очередь", { c.transfer(from, recipient!!, sum) }, enabled = recipient != null && c.canTransfer(from, recipient, sum), size = 13.sp)
         }
     }
 }
@@ -278,9 +306,11 @@ private fun QueuePanel(c: GameController, modifier: Modifier) = SidePanel("ОЧ�
 @Composable
 private fun LogPanel(c: GameController, modifier: Modifier) = SidePanel("ЛОГ", modifier) {
     val state = c.state
-    Btn("Случайный ивент", c::triggerRandomEvent, Modifier.fillMaxWidth(), enabled = !state.isOver && state.activeEvent == null)
-    state.activeEvent?.let { Txt(it.describe(), Modifier.padding(top = 6.dp), color = Palette.yellow, size = 13.sp) }
-    Spacer(Modifier.height(6.dp))
+    if (state.rules.eventsEnabled) {
+        Btn("Случайный ивент", c::triggerRandomEvent, Modifier.fillMaxWidth(), enabled = !state.isOver && state.activeEvent == null)
+        state.activeEvent?.let { Txt(it.describe(), Modifier.padding(top = 6.dp), color = Palette.yellow, size = 13.sp) }
+        Spacer(Modifier.height(6.dp))
+    }
     LazyColumn(contentPadding = PaddingValues(bottom = 8.dp)) {
         for (turnLog in c.state.log.asReversed()) {
             item { Txt("── Ход ${turnLog.turn} ──", Modifier.padding(top = 6.dp), color = Palette.accent, bold = true) }

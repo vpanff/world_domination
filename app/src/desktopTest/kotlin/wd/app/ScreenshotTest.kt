@@ -57,6 +57,7 @@ class ScreenshotTest {
         c.resolve()
         c.add(ActionType.UPGRADE, "Россия", CityRef("Россия", "Москва"))
         c.add(ActionType.ECOLOGY, "Израиль")
+        c.transfer("Китай", "Израиль", 100)
         c.update { it.triggerEvent(WorldEventType.BUILDING_BOOM) }
         c.update { it.copy(leaders = mapOf("Россия" to Leader(1, "Вова"), "США" to Leader(2, "Анна")), ready = setOf("США")) }
         return session
@@ -88,6 +89,8 @@ class ScreenshotTest {
         }
         shot("new_game", 1400, 900) { NewGameScreen({}, {}) }
         shot("game_wide", 1400, 900) { GameScreen(midGame()) {} }
+        shot("game_transfer", 1400, 900) { GameScreen(midGame().apply { controller!!.transferFrom = "Россия" }) {} }
+        shot("game_narrow_transfer", 360, 780) { GameScreen(midGame().apply { controller!!.transferFrom = "Россия" }) {} }
         shot("game_narrow", 360, 780) { GameScreen(midGame()) {} }
         shot("game_narrow_attack", 360, 780) { GameScreen(midGame().apply { controller!!.startLaunch("США") }) {} }
         shot("new_game_narrow", 360, 780) { NewGameScreen({}, {}) }

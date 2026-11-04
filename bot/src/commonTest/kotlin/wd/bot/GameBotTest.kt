@@ -23,6 +23,7 @@ import wd.core.Leader
 import wd.core.Rules
 import wd.core.WorldEventType
 import wd.core.addAction
+import wd.core.addTransfer
 import wd.core.newGame
 import wd.core.resolveTurn
 import wd.core.triggerEvent
@@ -372,5 +373,108 @@ class GameBotTest {
         val decoded = kotlin.io.encoding.Base64.UrlSafe
             .withPadding(kotlin.io.encoding.Base64.PaddingOption.ABSENT).decode(payload).decodeToString()
         assertTrue(!decoded.contains("\"rc\""))
+    }
+
+    private fun leaderRussia() {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")))
+    }
+
+    @Test
+    fun transferFromChat() = runTest {
+        leaderRussia()
+        val bot = startBot()
+        val (_, panel) = BotText.panel(host.state!!, "Россия")
+        assertTrue(panel!!.rows.flatten().any { it.text == "💸 Перевод" })
+        val (_, targets) = BotText.panel(host.state!!, "Россия", PanelView.TRANSFER)
+        assertEquals(listOf("США", "Китай", "Израиль", "Германия"), targets!!.rows.flatten().map { it.text }.dropLast(1))
+
+        bot.handle(callback(7, "tr:1:2"))
+        bot.handle(message(7, "много"))
+        runCurrent()
+        assertTrue(host.state!!.pending.isEmpty())
+        assertTrue(telegram.texts().last().contains("целым числом"))
+
+        bot.handle(message(7, "5000"))
+        runCurrent()
+        assertTrue(host.state!!.pending.isEmpty())
+        assertTrue(telegram.texts().last().contains("Недостаточно средств"))
+
+        bot.handle(message(7, "300"))
+        runCurrent()
+        val action = host.state!!.pending.single()
+        assertEquals("Китай" to 300, action.toCountry to action.amount)
+        assertEquals(700, host.state!!.availableBalance("Россия"))
+        assertTrue(telegram.texts().last().contains("Перевод → Китай: 300$"))
+
+        // Следующее число — уже не сумма
+        bot.handle(message(7, "100"))
+        runCurrent()
+        assertEquals(1, host.state!!.pending.size)
+    }
+
+    @Test
+    fun transferDraftCancelledByButtonOrCommandOrNewTurn() = runTest {
+        leaderRussia()
+        val bot = startBot()
+        bot.handle(callback(7, "tr:1:2"))
+        bot.handle(callback(7, "v:1:0"))
+        bot.handle(message(7, "100"))
+        bot.handle(callback(7, "tr:1:2"))
+        bot.handle(message(7, "/panel"))
+        bot.handle(message(7, "100"))
+        runCurrent()
+        assertTrue(host.state!!.pending.isEmpty())
+
+        bot.handle(callback(7, "tr:1:2"))
+        host.state = host.state!!.resolveTurn()
+        bot.handle(message(7, "100"))
+        runCurrent()
+        assertTrue(host.state!!.pending.isEmpty())
+        assertTrue(telegram.texts().last().contains("уже завершён"))
+    }
+
+    @Test
+    fun transferDisabledHidesButtonAndRejects() = runTest {
+        host.state = newGame(GameSetup(rules = Rules(transfersEnabled = false)))
+            .copy(leaders = mapOf("Россия" to Leader(7, "А")))
+        val (_, panel) = BotText.panel(host.state!!, "Россия")
+        assertTrue(panel!!.rows.flatten().none { it.text == "💸 Перевод" })
+        val bot = startBot("https://example.org/app/")
+        bot.handle(callback(7, "tr:1:2"))
+        bot.handle(message(7, "100"))
+        bot.handle(webApp(7, """{"t":1,"q":[["t",2,100]],"r":false}"""))
+        runCurrent()
+        assertTrue(host.state!!.pending.isEmpty())
+        val state = Json.parseToJsonElement(MiniApp.encodeState(host.state!!, "Россия")).jsonObject
+        assertEquals("0", state["tr"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun transferFromMiniApp() = runTest {
+        leaderRussia()
+        val bot = startBot("https://example.org/app/")
+        bot.handle(webApp(7, """{"t":1,"q":[["t",2,300],["t",1,5000],["t",0,5]],"r":false}"""))
+        runCurrent()
+        val action = host.state!!.pending.single()
+        assertEquals("Китай" to 300, action.toCountry to action.amount)
+        val text = telegram.texts().first()
+        assertTrue(text.contains("Приказы приняты: 1") && text.contains("Недостаточно средств") && text.contains("самому себе"))
+
+        // Очередь уходит в мини-приложение и возвращается без потерь
+        val state = Json.parseToJsonElement(MiniApp.encodeState(host.state!!, "Россия")).jsonObject
+        assertEquals("""[["t",2,300]]""", state["q"].toString())
+        assertEquals(MiniOrder(ActionType.TRANSFER, 2, amount = 300), MiniApp.parseOrders("""{"t":1,"q":[["t",2,300]]}""").orders.single())
+    }
+
+    @Test
+    fun transferInReportAndMiniAppReport() {
+        val s = host.state!!.addTransfer("Россия", "Китай", 100).resolveTurn()
+        assertTrue(BotText.report(s, "Россия").contains("Перевод в Китай: −100$"))
+        assertTrue(BotText.report(s, "Китай").contains("Перевод от Россия: +100$"))
+        assertTrue(!BotText.report(s, "США").contains("Перевод"))
+        val sent = Json.parseToJsonElement(MiniApp.encodeState(s, "Россия")).jsonObject["rc"]!!.jsonArray
+        assertTrue(sent.any { it.toString() == """["ms",2,100]""" })
+        val received = Json.parseToJsonElement(MiniApp.encodeState(s, "Китай")).jsonObject["rc"]!!.jsonArray
+        assertTrue(received.any { it.toString() == """["mr",0,100]""" })
     }
 }

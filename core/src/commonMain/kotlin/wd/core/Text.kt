@@ -10,11 +10,13 @@ fun ActionType.title(): String = when (this) {
     ActionType.PRODUCE -> "Производство бомбы"
     ActionType.ECOLOGY -> "Экология"
     ActionType.LAUNCH -> "Запуск бомбы"
+    ActionType.TRANSFER -> "Перевод"
 }
 
 fun Action.describe(): String = when (type) {
     ActionType.SHIELD, ActionType.UPGRADE -> "${type.title()}: ${target?.city}"
     ActionType.LAUNCH -> "${type.title()} → $target"
+    ActionType.TRANSFER -> "${type.title()} → $toCountry: $amount$"
     else -> type.title()
 }
 
@@ -39,6 +41,8 @@ fun GameEvent.describe(): String = when (this) {
     is TechReady -> "$country: технология изучена"
     is BombsReady -> "$country: +$count бомб (всего $total)"
     is IncomeReceived -> "$country: +$amount$ → баланс $balance$"
+    is MoneySent -> "$from перевела $to: $amount$"
+    is MoneyReceived -> "$to получила от $from: $amount$"
     is ActionFailed -> "$country: $reason"
     is CityDestroyed -> "Город ${target.city} (${target.country}) уничтожен"
     is EcologyChanged -> "Экология: $from% → $to%"
@@ -62,6 +66,8 @@ fun GameEvent.playerText(): String = when (this) {
     is TechReady -> "Технология изучена"
     is BombsReady -> "Готово бомб: +$count, всего $total"
     is IncomeReceived -> "Доход: +$amount$, баланс $balance$"
+    is MoneySent -> "Перевод в $to: −$amount$"
+    is MoneyReceived -> "Перевод от $from: +$amount$"
     is ActionFailed -> reason.replaceFirstChar { it.uppercase() }
     is CityDestroyed -> "$target: город уничтожен"
     else -> describe()
@@ -108,6 +114,7 @@ fun GameEvent.icon(): String = when (this) {
     }
     is TechReady, is BombsReady -> "✓"
     is IncomeReceived -> "💰"
+    is MoneySent, is MoneyReceived -> "💸"
     is ActionFailed -> "⚠"
     is CityDestroyed -> "☢"
     is EcologyChanged -> "🌍"

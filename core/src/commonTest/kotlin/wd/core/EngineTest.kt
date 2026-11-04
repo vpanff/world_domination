@@ -337,6 +337,98 @@ class EngineTest {
     }
 
     @Test
+    fun transferReservesMoneyAndArrivesAtEndOfTurn() {
+        val s = newGame().addTransfer(ru, us, 300)
+        assertEquals(700, s.availableBalance(ru))
+        assertEquals(1000, s.availableBalance(us))
+        assertFailsWith<ActionError> { s.addTransfer(ru, cn, 701) }
+
+        val after = s.addTransfer(ru, cn, 700).addAction(ActionType.UPGRADE, us, ny).resolveTurn()
+        assertEquals(0 + 140, after.c(ru).balance)
+        assertEquals(1000 + 300 - 150 + 175, after.c(us).balance)
+        assertEquals(1000 + 700 + 140, after.c(cn).balance)
+    }
+
+    @Test
+    fun transferIsNotSpendableTheSameTurn() {
+        var s = newGame().addTransfer(ru, us, 500)
+        for (city in s.c(us).cities) s = s.addAction(ActionType.SHIELD, us, CityRef(us, city.name))
+        assertFailsWith<ActionError> { s.addAction(ActionType.UPGRADE, us, ny) }
+    }
+
+    @Test
+    fun transferCanBeCancelled() {
+        val s = newGame().addTransfer(ru, us, 300)
+        val back = s.cancelAction(s.pending.single().id)
+        assertEquals(1000, back.availableBalance(ru))
+        assertEquals(1140, back.resolveTurn().c(us).balance)
+    }
+
+    @Test
+    fun transferValidation() {
+        val s = newGame()
+        assertFailsWith<ActionError> { s.addTransfer(ru, ru, 100) }
+        assertFailsWith<ActionError> { s.addTransfer(ru, us, 0) }
+        assertFailsWith<ActionError> { s.addTransfer(ru, us, -5) }
+        assertFailsWith<ActionError> { s.addTransfer(ru, "Атлантида", 5) }
+        assertFailsWith<ActionError> { s.addAction(ActionType.TRANSFER, ru) }
+        val off = newGame(GameSetup(rules = Rules(transfersEnabled = false)))
+        assertFailsWith<ActionError> { off.addTransfer(ru, us, 100) }
+    }
+
+    @Test
+    fun transferIsSeenOnlyBySenderAndRecipient() {
+        val s = newGame().addTransfer(ru, us, 100).resolveTurn()
+        assertTrue(MoneySent(ru, us, 100) in s.reportFor(ru).countryEvents)
+        assertTrue(MoneyReceived(ru, us, 100) in s.reportFor(us).countryEvents)
+        assertTrue(s.reportFor(ru).events.none { it is MoneyReceived })
+        assertTrue(s.reportFor(cn).events.none { it is MoneySent || it is MoneyReceived })
+    }
+
+    @Test
+    fun transferToCountryDestroyedThisTurnStaysWithSender() {
+        val cities = listOf(CountrySetup("A", listOf("a")), CountrySetup("B", listOf("b")), CountrySetup("C", listOf("c")))
+        val s = newGame(GameSetup(cities, Rules(startBombs = 1)))
+            .addTransfer("A", "B", 400)
+            .addAction(ActionType.LAUNCH, "C", CityRef("B", "b"))
+            .resolveTurn()
+        assertEquals(1000 + 35, s.c("A").balance)
+        assertTrue(s.lastEvents().any { it is ActionFailed && it.country == "A" })
+        assertTrue(s.lastEvents().none { it is MoneySent })
+    }
+
+    @Test
+    fun transferFromCountryDestroyedThisTurnIsLost() {
+        val cities = listOf(CountrySetup("A", listOf("a")), CountrySetup("B", listOf("b")), CountrySetup("C", listOf("c")))
+        val s = newGame(GameSetup(cities, Rules(startBombs = 1)))
+            .addTransfer("A", "B", 400)
+            .addAction(ActionType.LAUNCH, "C", CityRef("A", "a"))
+            .resolveTurn()
+        assertEquals(1000 + 35, s.c("B").balance)
+    }
+
+    @Test
+    fun eventsCanBeDisabled() {
+        val s = newGame(GameSetup(rules = Rules(eventsEnabled = false)))
+        assertTrue(s.possibleEvents().isEmpty())
+        assertFailsWith<ActionError> { s.triggerRandomEvent() }
+        assertFailsWith<ActionError> { s.triggerEvent(WorldEventType.CRISIS) }
+    }
+
+    @Test
+    fun startBombsComeFromRules() {
+        assertTrue(newGame(GameSetup(rules = Rules(startBombs = 3))).countries.all { it.bombs == 3 })
+    }
+
+    @Test
+    fun transferSurvivesSave() {
+        val s = newGame().addTransfer(ru, us, 100)
+        assertEquals(s, gameFromJson(s.toJson()))
+        val done = s.resolveTurn()
+        assertEquals(done, gameFromJson(done.toJson()))
+    }
+
+    @Test
     fun setupValidation() {
         assertFailsWith<IllegalArgumentException> {
             newGame(GameSetup(listOf(CountrySetup("A", listOf("a", "a")), CountrySetup("B", listOf("b")))))

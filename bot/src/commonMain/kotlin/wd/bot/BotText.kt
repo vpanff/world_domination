@@ -13,7 +13,7 @@ import wd.core.reportFor
 import wd.core.validate
 
 /** Экран панели хода. */
-enum class PanelView { MAIN, LAUNCH, QUEUE }
+enum class PanelView { MAIN, LAUNCH, QUEUE, TRANSFER }
 
 // Данные кнопок (лимит Telegram — 64 байта), поэтому города передаются индексами:
 //   u:<ход>:<город>       улучшение своего города
@@ -23,6 +23,7 @@ enum class PanelView { MAIN, LAUNCH, QUEUE }
 //   x:<ход>:<id>          отмена приказа
 //   v:<ход>:<экран>       переключить экран панели
 //   ok:<ход>              готов / не готов
+//   tr:<ход>:<страна>     выбрать получателя перевода; сумму игрок присылает сообщением
 
 internal fun String.html(): String = replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -36,7 +37,12 @@ private fun Action.line(): String = when (type) {
     ActionType.PRODUCE -> "💣 Производство бомбы"
     ActionType.ECOLOGY -> "🌿 Экология"
     ActionType.LAUNCH -> "🚀 Запуск → ${target?.city} (${target?.country})"
+    ActionType.TRANSFER -> "💸 Перевод → $toCountry: $amount$"
 }
+
+/** Живые чужие страны с их номерами. */
+private fun GameState.transferTargets(country: String): List<Pair<Int, String>> =
+    countries.mapIndexedNotNull { i, c -> (i to c.name).takeIf { c.name != country && c.isAlive } }
 
 object BotText {
 
@@ -105,6 +111,14 @@ object BotText {
         }
     }.trimEnd()
 
+    /** Запрос суммы перевода: следующее сообщение игрока будет суммой. */
+    fun transferPrompt(state: GameState, country: String, to: String): Pair<String, Keyboard> {
+        val text = "💸 <b>Перевод → ${to.html()}</b>\n" +
+            "Доступно: ${state.availableBalance(country)}$\n\n" +
+            "Отправьте сумму сообщением, например 100."
+        return text to Keyboard(listOf(listOf(Button("« Назад", "v:${state.turn}:${PanelView.MAIN.ordinal}"))))
+    }
+
     /** Панель хода: краткое состояние и кнопки приказов. */
     fun panel(state: GameState, country: String, view: PanelView = PanelView.MAIN): Pair<String, Keyboard?> {
         val me = state.country(country) ?: return "Страна не найдена" to null
@@ -132,6 +146,7 @@ object BotText {
                 PanelView.MAIN -> appendLine(if (ready) "✅ Вы готовы. Ждём остальных." else "Когда закончите — нажмите «Готово».")
                 PanelView.LAUNCH -> appendLine("🚀 <b>Выберите цель</b>")
                 PanelView.QUEUE -> appendLine("Нажмите на приказ, чтобы отменить его")
+                PanelView.TRANSFER -> appendLine("💸 <b>Кому перевести деньги?</b>")
             }
         }.trimEnd()
 
@@ -157,6 +172,10 @@ object BotText {
                     Button("🌿 Экология ${state.cost(ActionType.ECOLOGY)}$", "e:$t").takeIf { state.can(ActionType.ECOLOGY, country) },
                     Button("🚀 Запуск", "v:$t:${PanelView.LAUNCH.ordinal}").takeIf { freeBombs > 0 },
                 )
+                val canTransfer = state.availableBalance(country) > 0 && state.transferTargets(country).isNotEmpty()
+                if (state.rules.transfersEnabled && canTransfer) {
+                    rows += listOf(Button("💸 Перевод", "v:$t:${PanelView.TRANSFER.ordinal}"))
+                }
                 rows += listOfNotNull(
                     Button("📋 Отменить приказ", "v:$t:${PanelView.QUEUE.ordinal}").takeIf { pending.isNotEmpty() },
                     Button(if (ready) "↩ Не готов" else "✅ Готово", "ok:$t"),
@@ -172,6 +191,11 @@ object BotText {
                     }
                 }
                 rows += targets.chunked(2)
+                rows += listOf(Button("« Назад", "v:$t:${PanelView.MAIN.ordinal}"))
+            }
+
+            PanelView.TRANSFER -> {
+                rows += state.transferTargets(country).map { (i, name) -> Button(name, "tr:$t:$i") }.chunked(2)
                 rows += listOf(Button("« Назад", "v:$t:${PanelView.MAIN.ordinal}"))
             }
 

@@ -56,6 +56,11 @@
   .order button { padding: 4px 10px; background: transparent; color: var(--red); font-size: 18px; }
   label.ready { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-weight: 600; }
   label.ready input { width: 22px; height: 22px; accent-color: var(--green); }
+  .transfer { display: flex; gap: 8px; }
+  .transfer select, .transfer input {
+    font: inherit; min-width: 0; flex: 1; padding: 8px; border-radius: 10px;
+    border: 1px solid rgba(127,127,127,.3); background: var(--bg); color: var(--text);
+  }
   details.report { margin-top: 10px; }
   details.report summary { font-weight: 600; cursor: pointer; padding: 4px 0; }
   .line { padding: 3px 0; }
@@ -91,10 +96,10 @@ const DEMO = {
   ci: [["Москва", 2, 1, 1], ["Владивосток", 0, 0, 1], ["Санкт-Петербург", 1, 0, 1], ["Новосибирск", 0, 0, 0]],
   o: [[1, "США", [["Лос-Анджелес", 1], ["Нью-Йорк", 0], ["Вашингтон", 1], ["Чикаго", 1]]],
       [2, "Китай", [["Пекин", 1], ["Шанхай", 1], ["Ухань", 1], ["Гуанчжоу", 1]]]],
-  q: [["u", 1]], r: false,
+  q: [["u", 1], ["t", 2, 100]], r: false, tr: 1,
   ev: "🏗 Строительный бум: улучшение городов на 25% дешевле на один ход",
   ep: 91,
-  rc: [["up", 0, 0, 2], ["bo"], ["br", 1, 2], ["ls", 1, 1], ["sh", 0, 2], ["in", 420, 760]],
+  rc: [["up", 0, 0, 2], ["bo"], ["br", 1, 2], ["ls", 1, 1], ["sh", 0, 2], ["ms", 1, 50], ["mr", 2, 200], ["in", 420, 760]],
   rw: [["ev", "🌋 Извержение супервулкана: экология −10%"], ["cd", 2, 0]],
   dt: 3, dv: [[2, 200, 25], [0, 175, -25], [1, 125]],
 };
@@ -114,10 +119,13 @@ let ready = !!S.r;
 
 // ─── Правила (повторяют ядро; окончательная проверка — в боте) ─────────────
 
-const COST = { u: S.cost[0], s: S.cost[1], r: S.cost[2], p: S.cost[3], e: S.cost[4], l: 0 };
+const COST = { u: S.cost[0], s: S.cost[1], r: S.cost[2], p: S.cost[3], e: S.cost[4], l: 0, t: 0 };
+const orderCost = o => o[0] === "t" ? o[2] : COST[o[0]];
 const count = (type, a) => queue.filter(o => o[0] === type && (a === undefined || o[1] === a)).length;
-const available = () => S.b - queue.reduce((sum, o) => sum + COST[o[0]], 0);
+const available = () => S.b - queue.reduce((sum, o) => sum + orderCost(o), 0);
 const freeBombs = () => S.m - count("l");
+
+const transferTargets = () => S.o.filter(c => c[2].some(x => x[1] === 1));
 
 function can(type, a, b) {
   if (available() < COST[type]) return false;
@@ -132,6 +140,7 @@ function can(type, a, b) {
       const target = S.o.find(c => c[0] === a);
       return freeBombs() >= 1 && !!target && target[2][b][1] === 1;
     }
+    case "t": return !!S.tr && transferTargets().some(c => c[0] === a) && Number.isInteger(b) && b > 0 && b <= available();
   }
   return false;
 }
@@ -160,6 +169,7 @@ function describe(o) {
       const c = S.o.find(x => x[0] === o[1]);
       return "🚀 Удар: " + c[2][o[2]][0] + " (" + c[1] + ")";
     }
+    case "t": return "💸 Перевод → " + countryName(o[1]) + ": " + o[2] + "$";
   }
 }
 
@@ -184,6 +194,8 @@ function reportLine(e) {
     case "tr": return "✓ Технология изучена";
     case "br": return "✓ Готово бомб: +" + e[1] + ", всего " + e[2];
     case "in": return "💰 Доход: +" + e[1] + "$, баланс " + e[2] + "$";
+    case "ms": return "💸 Перевод в " + countryName(e[1]) + ": −" + e[2] + "$";
+    case "mr": return "💸 Перевод от " + countryName(e[1]) + ": +" + e[2] + "$";
     case "af": return "⚠ " + e[1].charAt(0).toUpperCase() + e[1].slice(1);
     case "cd": return "☢ " + cityRef(e[1], e[2]) + ": город уничтожен";
     case "ev": return e[1];
@@ -231,6 +243,9 @@ function el(tag, attrs, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (k === "onclick") node.onclick = v;
     else if (k === "ontoggle") node.ontoggle = v;
+    else if (k === "oninput") node.oninput = v;
+    else if (k === "onchange") node.onchange = v;
+    else if (k === "value") node.value = v;
     else if (k === "open") node.open = v;
     else if (k === "disabled") node.disabled = v;
     else if (k === "checked") node.checked = v;
@@ -242,12 +257,48 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
+let transferTo = null;
+let transferAmount = "";
+
+const parsedAmount = () => /^\d+$/.test(transferAmount) ? Number(transferAmount) : 0;
+
+function transferView() {
+  const targets = transferTargets();
+  if (!S.tr || targets.length === 0) return null;
+  if (!targets.some(c => c[0] === transferTo)) transferTo = targets[0][0];
+  const refresh = () => { document.getElementById("transfer-add").disabled = !can("t", transferTo, parsedAmount()); };
+  return [
+    el("h2", {}, "Перевод денег"),
+    el("div", { class: "card" },
+      el("div", { class: "transfer" },
+        el("select", { onchange: e => { transferTo = Number(e.target.value); refresh(); } },
+          targets.map(c => {
+            const option = el("option", { value: c[0] }, c[1]);
+            option.selected = c[0] === transferTo;
+            return option;
+          })),
+        el("input", {
+          type: "number", min: "1", step: "1", inputmode: "numeric", placeholder: "Сумма", value: transferAmount,
+          oninput: e => { transferAmount = e.target.value; refresh(); },
+        }),
+        el("button", {
+          id: "transfer-add", disabled: !can("t", transferTo, parsedAmount()),
+          onclick: () => {
+            const amount = parsedAmount();
+            transferAmount = "";
+            add(["t", transferTo, amount]);
+          },
+        }, "Добавить")),
+      el("div", { class: "hint", style: "margin-top:6px" }, "Деньги придут получателю в конце хода.")),
+  ];
+}
+
 function render() {
   const app = document.getElementById("app");
   const money = available();
   const techText = ["нет", "исследуется", "есть"][S.tech];
 
-  app.replaceChildren(
+  app.replaceChildren(...[
     el("div", { class: "row" },
       el("h1", { class: "grow" }, "Ход " + S.t + " · " + S.c),
       el("span", { class: "hint" }, "🌍 " + S.e + "%")),
@@ -292,6 +343,8 @@ function render() {
           ? el("button", { disabled: !can("l", c[0], j), onclick: () => add(["l", c[0], j]) }, city[0])
           : el("span", { class: "tag dead" }, city[0])))))),
 
+    transferView(),
+
     el("h2", {}, "Приказы (" + queue.length + ")"),
     el("div", { class: "card" },
       queue.length === 0 ? el("div", { class: "hint" }, "Пока нет приказов") : null,
@@ -304,7 +357,7 @@ function render() {
       "Я закончил ход"),
     el("div", { class: "hint", style: "margin-top:6px" },
       "Отправка заменит все ваши приказы на этот ход."),
-  );
+  ].flat().filter(Boolean));
 
   const label = "Отправить приказы (" + queue.length + ")";
   if (insideTelegram) {

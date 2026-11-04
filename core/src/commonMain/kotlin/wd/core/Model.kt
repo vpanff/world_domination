@@ -50,11 +50,13 @@ enum class ActionType(val priority: Int) {
     PRODUCE(2),
     ECOLOGY(2),
     LAUNCH(3),
+    TRANSFER(4),
 }
 
 /**
  * Действие в очереди хода.
  * [target] — свой город для SHIELD/UPGRADE, любой город для LAUNCH, иначе null.
+ * [toCountry] и [amount] — получатель и сумма для TRANSFER.
  */
 @Serializable
 data class Action(
@@ -62,6 +64,8 @@ data class Action(
     val type: ActionType,
     val country: String,
     val target: CityRef? = null,
+    val toCountry: String? = null,
+    val amount: Int = 0,
 )
 
 @Serializable
@@ -137,8 +141,10 @@ data class GameState(
     /** Баланс за вычетом действий, уже стоящих в очереди. */
     fun availableBalance(country: String): Int {
         val c = country(country) ?: return 0
-        return c.balance - pendingOf(country).sumOf { cost(it.type) }
+        return c.balance - pendingOf(country).sumOf { cost(it) }
     }
+
+    fun cost(action: Action): Int = if (action.type == ActionType.TRANSFER) action.amount else cost(action.type)
 
     /** Цена действия в этом ходу с учётом ивента. */
     fun cost(type: ActionType): Int {

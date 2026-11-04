@@ -71,6 +71,17 @@ data class IncomeReceived(val country: String, val amount: Int, val balance: Int
     override val audience get() = country
 }
 
+/** Отправитель и получатель видят перевод каждый своей строкой. Остальные о нём не знают. */
+@Serializable @SerialName("money_sent")
+data class MoneySent(val from: String, val to: String, val amount: Int) : GameEvent {
+    override val audience get() = from
+}
+
+@Serializable @SerialName("money_received")
+data class MoneyReceived(val from: String, val to: String, val amount: Int) : GameEvent {
+    override val audience get() = to
+}
+
 @Serializable @SerialName("action_failed")
 data class ActionFailed(val country: String, val reason: String) : GameEvent {
     override val audience get() = country

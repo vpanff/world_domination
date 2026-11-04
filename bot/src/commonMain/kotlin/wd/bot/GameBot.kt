@@ -16,9 +16,11 @@ import wd.core.CityRef
 import wd.core.GameState
 import wd.core.Leader
 import wd.core.addAction
+import wd.core.addTransfer
 import wd.core.cancelAction
 import wd.core.describe
 import wd.core.icon
+import wd.core.validateTransfer
 
 /** Партия, которой управляет бот. Все вызовы — из главного потока. */
 interface GameHost {
@@ -69,6 +71,9 @@ class GameBot(
 
     var username: String? = null
         private set
+
+    /** Кто сейчас вводит сумму перевода: игрок → получатель и ход. */
+    private val transferDrafts = mutableMapOf<Long, Pair<String, Int>>()
 
     /** Очередь переживает перезапуск бота: что не успело уйти, уйдёт после старта. */
     private val outbox = Channel<Outgoing>(Channel.UNLIMITED)
@@ -254,6 +259,15 @@ class GameBot(
             return
         }
 
+        // Команда отменяет ввод суммы, любой другой текст считается суммой
+        if (user.id in transferDrafts) {
+            if (!text.startsWith("/")) {
+                handleTransferAmount(user, text, chatId)
+                return
+            }
+            transferDrafts.remove(user.id)
+        }
+
         val command = text.substringBefore(' ').substringBefore('@')
         val argument = text.substringAfter(' ', "").trim()
         if (command == "/start" && argument.isNotEmpty()) {
@@ -295,6 +309,31 @@ class GameBot(
         sendReport(updated, country, chatId)
     }
 
+    private fun handleTransferAmount(user: TgUser, text: String, chatId: Long) {
+        val state = host.state ?: return
+        val (to, turn) = transferDrafts.getValue(user.id)
+        val country = state.countryOfLeader(user.id)
+        if (country == null || turn != state.turn || !canOrder(state, country)) {
+            transferDrafts.remove(user.id)
+            enqueue(Outgoing.Send(chatId, "Этот ход уже завершён — перевод не принят."))
+            return
+        }
+        val amount = text.removeSuffix("$").replace(" ", "").toIntOrNull()
+        if (amount == null) {
+            enqueue(Outgoing.Send(chatId, "Отправьте сумму целым числом, например 100."))
+            return
+        }
+        try {
+            host.update { it.addTransfer(country, to, amount).copy(ready = it.ready - country) }
+        } catch (e: ActionError) {
+            log("Отклонено для $country: ${e.message}")
+            enqueue(Outgoing.Send(chatId, "${e.message.orEmpty().html()}. Отправьте другую сумму или вернитесь к панели через /panel."))
+            return
+        }
+        transferDrafts.remove(user.id)
+        sendPanel(host.state!!, country, chatId)
+    }
+
     /** Приказы из мини-приложения заменяют все приказы страны на этот ход. */
     private fun handleOrders(user: TgUser, data: String, chatId: Long) {
         val state = host.state ?: return
@@ -319,6 +358,10 @@ class GameBot(
             var next = s.pendingOf(country).fold(s) { acc, a -> acc.cancelAction(a.id) }
             for (order in parsed.orders) {
                 try {
+                    if (order.type == ActionType.TRANSFER) {
+                        next = next.addTransfer(country, next.countries[order.countryIndex!!].name, order.amount!!)
+                        continue
+                    }
                     val target = when (order.type) {
                         ActionType.UPGRADE, ActionType.SHIELD ->
                             CityRef(country, next.country(country)!!.cities[order.cityIndex!!].name)
@@ -353,6 +396,7 @@ class GameBot(
     }
 
     private fun handleCallback(callback: TgCallback) {
+        transferDrafts.remove(callback.from.id)
         val state = host.state
         val message = callback.message
         val country = state?.countryOfLeader(callback.from.id)
@@ -390,6 +434,15 @@ class GameBot(
                         if (state.pendingOf(country).none { it.id == id }) throw ActionError("Приказ уже отменён")
                         host.update { it.cancelAction(id).copy(ready = it.ready - country) }
                         if (host.state!!.pendingOf(country).isNotEmpty()) view = PanelView.QUEUE
+                    }
+                    "tr" -> {
+                        val to = state.countries[parts[2].toInt()].name
+                        state.validateTransfer(country, to, 1)
+                        transferDrafts[callback.from.id] = to to state.turn
+                        enqueue(Outgoing.Answer(callback.id))
+                        val (text, keyboard) = BotText.transferPrompt(state, country, to)
+                        enqueue(Outgoing.Edit(message.chat.id, message.messageId, text, keyboard))
+                        return
                     }
                     "v" -> view = PanelView.entries[parts[2].toInt()]
                     "ok" -> host.update {

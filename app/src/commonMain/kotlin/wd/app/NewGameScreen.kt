@@ -26,13 +26,16 @@ import androidx.compose.ui.unit.sp
 import wd.core.CountrySetup
 import wd.core.GameSetup
 import wd.core.GameState
+import wd.core.Rules
 import wd.core.newGame
 
 private const val MAX_COUNTRIES = 8
+private const val MAX_START_BOMBS = 10
 
 @Composable
 fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit) {
     var countries by remember { mutableStateOf(GameSetup.DEFAULT_COUNTRIES) }
+    var rules by remember { mutableStateOf(Rules()) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun edit(index: Int, change: (CountrySetup) -> CountrySetup) {
@@ -80,17 +83,39 @@ fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit) {
             })
         }
 
+        Panel(Modifier.widthIn(max = 900.dp).fillMaxWidth()) {
+            Txt("ПРАВИЛА", bold = true, color = Palette.dim)
+            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                RuleToggle("Случайные ивенты", rules.eventsEnabled) { rules = rules.copy(eventsEnabled = it) }
+                RuleToggle("Переводы денег между странами", rules.transfersEnabled) { rules = rules.copy(transfersEnabled = it) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Txt("Начальных бомб у каждой страны:")
+                    Btn("−", { rules = rules.copy(startBombs = rules.startBombs - 1) }, enabled = rules.startBombs > 0)
+                    Txt("${rules.startBombs}", bold = true)
+                    Btn("+", { rules = rules.copy(startBombs = rules.startBombs + 1) }, enabled = rules.startBombs < MAX_START_BOMBS)
+                }
+            }
+        }
+
         error?.let { Txt(it, color = Palette.red) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn("Назад", onBack)
             Btn("НАЧАТЬ", {
                 try {
-                    onStart(newGame(GameSetup(countries)))
+                    onStart(newGame(GameSetup(countries, rules)))
                 } catch (e: IllegalArgumentException) {
                     error = e.message
                 }
             }, color = Palette.accent)
         }
+    }
+}
+
+@Composable
+private fun RuleToggle(title: String, value: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Btn(if (value) "Вкл" else "Выкл", { onChange(!value) }, Modifier.width(64.dp), color = if (value) Palette.green.copy(alpha = 0.6f) else Palette.button)
+        Txt(title)
     }
 }

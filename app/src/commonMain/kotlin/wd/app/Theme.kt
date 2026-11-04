@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -28,6 +29,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
@@ -110,11 +112,18 @@ fun Btn(
 }
 
 @Composable
-fun Field(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, secret: Boolean = false) {
+fun Field(
+    value: String,
+    onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    secret: Boolean = false,
+    numeric: Boolean = false,
+) {
     BasicTextField(
         value = value,
         onValueChange = onChange,
         singleLine = true,
+        keyboardOptions = if (numeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         textStyle = TextStyle(color = Palette.text, fontSize = 14.sp, fontFamily = font),
         cursorBrush = SolidColor(Palette.text),

@@ -43,6 +43,9 @@ data class Rules(
     val ecologyVolcano: Int = -10,
     /** Супервулкан выпадает только при такой экологии или выше, поэтому не может закончить партию сам. */
     val volcanoMinEcology: Int = 30,
+
+    val eventsEnabled: Boolean = true,
+    val transfersEnabled: Boolean = true,
 ) {
     val maxLevel: Int get() = incomeByLevel.size - 1
 
@@ -53,6 +56,7 @@ data class Rules(
         ActionType.PRODUCE -> costProduce
         ActionType.ECOLOGY -> costEcology
         ActionType.LAUNCH -> costLaunch
+        ActionType.TRANSFER -> 0   // сумма у каждого перевода своя, см. GameState.cost(Action)
     }
 
     fun income(level: Int): Int = incomeByLevel[level]
