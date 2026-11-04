@@ -1,6 +1,8 @@
 package wd.app
 
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -11,6 +13,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.MainScope
+import org.jetbrains.skia.Image
 import java.io.File
 
 fun main() = application {
@@ -23,6 +26,7 @@ fun main() = application {
             exitApplication()
         },
         title = "Мировое господство",
+        icon = remember { loadIcon() },
         onPreviewKeyEvent = { event ->
             // ` (на русской раскладке — ё) открывает консоль бота
             val grave = event.key == Key.Grave || event.utf16CodePoint in GRAVE_CHARS
@@ -41,6 +45,11 @@ fun main() = application {
 }
 
 private val GRAVE_CHARS = setOf('`'.code, '~'.code, 'ё'.code, 'Ё'.code)
+
+private fun loadIcon(): BitmapPainter {
+    val bytes = HostSession::class.java.getResourceAsStream("/icon.png")!!.use { it.readBytes() }
+    return BitmapPainter(Image.makeFromEncoded(bytes).toComposeImageBitmap())
+}
 
 /** Папка данных приложения по соглашениям каждой ОС. */
 private fun dataDir(): File {

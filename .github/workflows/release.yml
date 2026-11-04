@@ -1,0 +1,72 @@
+# Собирает установщики под все ОС и создаёт черновик релиза при пуше тега v*.
+# Один раз: Settings → Secrets and variables → Actions → секрет ANDROID_DEBUG_KEYSTORE
+# со значением `base64 -w0 ~/.android/debug.keystore`. Без него APK подписывался бы
+# каждый раз новым ключом, и обновление не ставилось бы поверх старой версии.
+
+name: Релиз
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            tasks: ":app:packageDeb :androidApp:assembleRelease"
+            files: |
+              app/build/compose/binaries/main/deb/*.deb
+              androidApp/build/outputs/apk/release/*.apk
+          - os: windows-latest
+            tasks: ":app:packageMsi"
+            files: app/build/compose/binaries/main/msi/*.msi
+          - os: macos-latest
+            tasks: ":app:packageDmg"
+            files: app/build/compose/binaries/main/dmg/*.dmg
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Ключ подписи APK
+        if: runner.os == 'Linux'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          test -n "$KEYSTORE" || { echo "Нет секрета ANDROID_DEBUG_KEYSTORE"; exit 1; }
+          mkdir -p ~/.android
+          echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
+      - name: Сборка
+        shell: bash
+        run: ./gradlew --console=plain ${{ matrix.tasks }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Черновик релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv dist/androidApp-release.apk "dist/world-domination-${GITHUB_REF_NAME#v}.apk"
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --draft --generate-notes --title "Мировое господство $GITHUB_REF_NAME"

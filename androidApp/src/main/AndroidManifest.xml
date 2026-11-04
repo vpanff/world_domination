@@ -9,6 +9,7 @@
     <application
         android:name=".WdApplication"
         android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
         android:label="Мировое господство"
         android:theme="@android:style/Theme.Material.NoActionBar">
 

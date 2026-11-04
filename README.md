@@ -24,12 +24,26 @@ legacy/   — Python-версия 1.0.0 (PyQt6)
 ./gradlew :app:run                # запустить приложение ведущего
 ./gradlew :core:jvmTest :bot:jvmTest   # тесты ядра и бота
 ./gradlew :app:desktopTest        # скриншоты экранов → app/build/screenshots
-./gradlew :app:packageDistributionForCurrentOS   # установщик для текущей ОС
+./gradlew :app:packageDistributionForCurrentOS   # установщик для текущей ОС → app/build/compose/binaries/main
 ./gradlew :androidApp:assembleRelease            # APK → androidApp/build/outputs/apk/release
 ./gradlew :androidApp:installRelease             # установить на подключённый телефон
 ```
 
 Для Android нужен Android SDK; путь к нему — в `local.properties` (`sdk.dir=...`).
+
+Установщик собирается только под ту ОС, на которой запущена сборка: `.deb` на
+Linux, `.msi` на Windows, `.dmg` на macOS. Установка на Linux:
+`sudo apt install ./app/build/compose/binaries/main/deb/world-domination_*_amd64.deb`
+
+## Релиз
+
+Готовые установщики — на странице [Releases](https://github.com/vpanff/world_domination/releases).
+
+1. Один раз добавьте секрет `ANDROID_DEBUG_KEYSTORE` (см. `.github/workflows/release.yml`).
+2. Поднимите версию в `app/build.gradle.kts` и `androidApp/build.gradle.kts`.
+3. Запушьте тег: `git tag v2.1.0 && git push origin main v2.1.0`.
+4. GitHub Actions соберёт `.deb`, `.msi`, `.dmg`, `.apk` и создаст черновик релиза —
+   проверьте его и нажмите «Publish release».
 
 Сохранения лежат в `~/.local/share/world-domination/saves` (Linux),
 `%APPDATA%\world-domination\saves` (Windows),

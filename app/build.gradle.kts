@@ -49,8 +49,32 @@ compose.desktop {
         mainClass = "wd.app.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Msi, TargetFormat.Dmg)
-            packageName = "world-domination"
-            packageVersion = "2.0.0"
+            packageName = "World Domination"
+            packageVersion = "2.1.0"
+            // WiX на Windows не принимает кириллицу при кодовой странице 1252.
+            description = if ("win" in System.getProperty("os.name").lowercase()) "World Domination" else "Мировое господство"
+            vendor = "vpanff"
+            // Упакованный JRE урезан: instrument и unsupported подсказал
+            // suggestRuntimeModules, crypto.ec нужен боту для HTTPS к Telegram.
+            modules("java.instrument", "jdk.unsupported", "jdk.crypto.ec")
+            linux {
+                packageName = "world-domination"
+                iconFile.set(project.file("src/desktopMain/resources/icon.png"))
+                shortcut = true
+                menuGroup = "Game"
+                appCategory = "games"
+            }
+            windows {
+                iconFile.set(project.file("icons/icon.ico"))
+                menu = true
+                shortcut = true
+                // Постоянный: по нему новая версия заменяет старую, а не ставится рядом.
+                upgradeUuid = "727fea47-b5d9-4845-a6ae-b5a2be6d2f39"
+            }
+            macOS {
+                iconFile.set(project.file("icons/icon.icns"))
+                bundleID = "io.github.vpanff.worlddomination"
+            }
         }
     }
 }
