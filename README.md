@@ -29,28 +29,6 @@ legacy/   — Python-версия 1.0.0 (PyQt6)
 ./gradlew :androidApp:installRelease             # установить на подключённый телефон
 ```
 
-Для Android нужен Android SDK; путь к нему — в `local.properties` (`sdk.dir=...`).
-
-Установщик собирается только под ту ОС, на которой запущена сборка: `.deb` на
-Linux, `.msi` на Windows, `.dmg` на macOS. Установка на Linux:
-`sudo apt install ./app/build/compose/binaries/main/deb/world-domination_*_amd64.deb`
-
-## Релиз
-
-Готовые установщики — на странице [Releases](https://github.com/vpanff/world_domination/releases).
-
-1. Один раз добавьте секрет `ANDROID_DEBUG_KEYSTORE` (см. `.github/workflows/release.yml`).
-2. Поднимите версию в `app/build.gradle.kts` и `androidApp/build.gradle.kts`.
-3. Запушьте тег: `git tag v2.1.0 && git push origin main v2.1.0`.
-4. GitHub Actions соберёт `.deb`, `.msi`, `.dmg`, `.apk` и создаст черновик релиза —
-   проверьте его и нажмите «Publish release».
-
-Сохранения лежат в `~/.local/share/world-domination/saves` (Linux),
-`%APPDATA%\world-domination\saves` (Windows),
-`~/Library/Application Support/world-domination/saves` (macOS).
-
-Старая версия: `pip install -r legacy/requirements.txt && python legacy/app.py`
-
 ## Telegram-бот
 
 1. Создайте бота у [@BotFather](https://t.me/BotFather) (`/newbot`) и скопируйте токен.
@@ -67,9 +45,4 @@ Linux, `.msi` на Windows, `.dmg` на macOS. Установка на Linux:
 
 ## Мини-приложение
 
-Страница `miniapp/` публикуется на GitHub Pages при пуше в `main`.
-
-1. Один раз: Settings → Pages → Source: «GitHub Actions».
-2. В приложении: Меню → Настройки → вставьте адрес страницы
-   (`https://vpanff.github.io/world_domination/`) → «Сохранить адрес».
-3. Перезапустите бота.
+Страница `miniapp/` публикуется на GitHub Pages.
