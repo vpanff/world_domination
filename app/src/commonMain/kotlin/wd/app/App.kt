@@ -138,6 +138,7 @@ private fun LoadScreen(saves: Saves, onLoad: (GameState) -> Unit, onBack: () -> 
 @Composable
 private fun SettingsScreen(session: HostSession, onBack: () -> Unit) = CenteredColumn {
     var token by remember { mutableStateOf(session.settings.botToken) }
+    var miniApp by remember { mutableStateOf(session.settings.miniAppUrl) }
     var check by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -163,6 +164,16 @@ private fun SettingsScreen(session: HostSession, onBack: () -> Unit) = CenteredC
             }, enabled = token.trim() != session.settings.botToken)
         }
         check?.let { Txt(it, color = Palette.yellow) }
+
+        Spacer(Modifier.height(12.dp))
+        Txt("Мини-приложение", bold = true)
+        Txt(
+            "Адрес страницы на GitHub Pages, например https://vpanff.github.io/world_domination/ . " +
+                "Пусто — игроки отдают приказы только кнопками в чате. Применится при следующем запуске бота.",
+            color = Palette.dim, size = 13.sp,
+        )
+        Field(miniApp, { miniApp = it }, Modifier.fillMaxWidth())
+        Btn("Сохранить адрес", { session.updateMiniAppUrl(miniApp) }, enabled = miniApp.trim() != session.settings.miniAppUrl)
     }
     Spacer(Modifier.height(12.dp))
     Txt("Версия 2.0.0", color = Palette.dim)

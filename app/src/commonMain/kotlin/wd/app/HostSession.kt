@@ -18,6 +18,8 @@ data class AppSettings(
     val botToken: String = "",
     /** Номер последнего обработанного сообщения Telegram — чтобы не обработать его повторно. */
     val botOffset: Long = 0,
+    /** Адрес мини-приложения на GitHub Pages; пусто — игроки отдают приказы кнопками в чате. */
+    val miniAppUrl: String = "",
 )
 
 private const val SETTINGS = "settings"
@@ -94,6 +96,7 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
             offset = settings.botOffset,
             onOffset = { saveSettings(settings.copy(botOffset = it)) },
             onLog = ::log,
+            miniAppUrl = settings.miniAppUrl.ifBlank { null },
         )
         bot = newBot
         newBot.start()
@@ -126,7 +129,12 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
         if (trimmed == settings.botToken) return
         stopBot()
         bot = null
-        saveSettings(AppSettings(botToken = trimmed))   // новый бот — offset с нуля
+        saveSettings(settings.copy(botToken = trimmed, botOffset = 0))   // новый бот — offset с нуля
+    }
+
+    /** Новый адрес мини-приложения применится при следующем запуске бота. */
+    fun updateMiniAppUrl(url: String) {
+        saveSettings(settings.copy(miniAppUrl = url.trim()))
     }
 
     // ─── Настройки ───────────────────────────────────────────────────────────

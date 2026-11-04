@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Мировое господство — приказы</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* Цвета берутся из темы Telegram, запасные — тёмная палитра приложения ведущего */
+  :root {
+    --bg: var(--tg-theme-bg-color, #212135);
+    --card: var(--tg-theme-secondary-bg-color, #1a1a2e);
+    --text: var(--tg-theme-text-color, #dce1f0);
+    --hint: var(--tg-theme-hint-color, #7a80a0);
+    --btn: var(--tg-theme-button-color, #e94560);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --accent: #e94560;
+    --green: #4caf50;
+    --yellow: #f5b800;
+    --red: #ef5350;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 12px 12px 90px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.35 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--hint); margin: 18px 0 8px; }
+  .card { background: var(--card); border-radius: 12px; padding: 10px 12px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .grow { flex: 1; min-width: 0; }
+  .hint { color: var(--hint); font-size: 13px; }
+  .money { font-size: 20px; font-weight: 700; }
+  .money.low { color: var(--yellow); }
+  .city { padding: 8px 0; border-top: 1px solid rgba(127,127,127,.15); }
+  .city:first-child { border-top: none; }
+  .dead { color: var(--hint); text-decoration: line-through; }
+  .tag { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: rgba(127,127,127,.18); }
+  .tag.shield { background: rgba(76,175,80,.25); }
+  .tag.queued { background: rgba(245,184,0,.25); }
+  button {
+    font: inherit; font-size: 14px; border: none; border-radius: 10px;
+    padding: 8px 10px; background: var(--btn); color: var(--btn-text); cursor: pointer;
+  }
+  button:disabled { opacity: .3; cursor: default; }
+  button.ghost { background: rgba(127,127,127,.18); color: var(--text); }
+  .actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .actions button { padding: 10px 4px; }
+  .actions small { display: block; opacity: .8; font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chips button { background: rgba(239,83,80,.2); color: var(--text); padding: 6px 10px; }
+  .target { padding: 8px 0; border-top: 1px solid rgba(127,127,127,.15); }
+  .target:first-child { border-top: none; }
+  .order { padding: 6px 0; }
+  .order button { padding: 4px 10px; background: transparent; color: var(--red); font-size: 18px; }
+  label.ready { display: flex; gap: 10px; align-items: center; margin-top: 14px; font-weight: 600; }
+  label.ready input { width: 22px; height: 22px; accent-color: var(--green); }
+  #fallback { position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 14px; font-weight: 700; }
+  #error { color: var(--red); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="error"></div>
+<button id="fallback" hidden></button>
+
+<script>
+"use strict";
+// Обмен с ботом описан в bot/src/commonMain/kotlin/wd/bot/MiniApp.kt.
+// Состояние приходит в ?s= (JSON в base64url), приказы уходят через Telegram.WebApp.sendData.
+
+window.onerror = (msg, src, line) => {
+  document.getElementById("error").textContent = "Ошибка: " + msg + " (строка " + line + ")";
+};
+
+const tg = window.Telegram && window.Telegram.WebApp;
+const insideTelegram = !!(tg && tg.initData);
+
+// Пример для открытия страницы в браузере без бота
+const DEMO = {
+  v: 1, t: 3, c: "Россия", e: 82, b: 760, m: 1, tech: 2,
+  cost: [150, 250, 500, 150, 200], ml: 7,
+  ci: [["Москва", 2, 1, 1], ["Владивосток", 0, 0, 1], ["Санкт-Петербург", 1, 0, 1], ["Новосибирск", 0, 0, 0]],
+  o: [[1, "США", [["Лос-Анджелес", 1], ["Нью-Йорк", 0], ["Вашингтон", 1], ["Чикаго", 1]]],
+      [2, "Китай", [["Пекин", 1], ["Шанхай", 1], ["Ухань", 1], ["Гуанчжоу", 1]]]],
+  q: [["u", 1]], r: false,
+};
+
+function decodeState() {
+  const raw = new URLSearchParams(location.search).get("s");
+  if (!raw) return DEMO;
+  let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+const S = decodeState();
+let queue = S.q.map(o => o.slice());
+let ready = !!S.r;
+
+// ─── Правила (повторяют ядро; окончательная проверка — в боте) ─────────────
+
+const COST = { u: S.cost[0], s: S.cost[1], r: S.cost[2], p: S.cost[3], e: S.cost[4], l: 0 };
+const count = (type, a) => queue.filter(o => o[0] === type && (a === undefined || o[1] === a)).length;
+const available = () => S.b - queue.reduce((sum, o) => sum + COST[o[0]], 0);
+const freeBombs = () => S.m - count("l");
+
+function can(type, a, b) {
+  if (available() < COST[type]) return false;
+  const city = S.ci[a];
+  switch (type) {
+    case "u": return city[3] === 1 && city[1] + count("u", a) < S.ml;
+    case "s": return city[3] === 1 && city[2] === 0 && count("s", a) === 0;
+    case "r": return S.tech === 0 && count("r") === 0;
+    case "p": return S.tech === 2;
+    case "e": return true;
+    case "l": {
+      const target = S.o.find(c => c[0] === a);
+      return freeBombs() >= 1 && !!target && target[2][b][1] === 1;
+    }
+  }
+  return false;
+}
+
+function add(order) {
+  if (!can(...order)) return;
+  queue.push(order);
+  haptic();
+  render();
+}
+
+function remove(index) {
+  queue.splice(index, 1);
+  haptic();
+  render();
+}
+
+function describe(o) {
+  switch (o[0]) {
+    case "u": return "⬆ Улучшение: " + S.ci[o[1]][0];
+    case "s": return "🛡 Щит: " + S.ci[o[1]][0];
+    case "r": return "🔬 Исследование";
+    case "p": return "💣 Производство бомбы";
+    case "e": return "🌿 Экология";
+    case "l": {
+      const c = S.o.find(x => x[0] === o[1]);
+      return "🚀 Удар: " + c[2][o[2]][0] + " (" + c[1] + ")";
+    }
+  }
+}
+
+function haptic() {
+  if (insideTelegram && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+}
+
+// ─── Отрисовка ─────────────────────────────────────────────────────────────
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "onclick") node.onclick = v;
+    else if (k === "disabled") node.disabled = v;
+    else if (k === "checked") node.checked = v;
+    else node.setAttribute(k, v);
+  }
+  for (const child of children.flat()) {
+    if (child !== null && child !== undefined && child !== false) node.append(child);
+  }
+  return node;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  const money = available();
+  const techText = ["нет", "исследуется", "есть"][S.tech];
+
+  app.replaceChildren(
+    el("div", { class: "row" },
+      el("h1", { class: "grow" }, "Ход " + S.t + " · " + S.c),
+      el("span", { class: "hint" }, "🌍 " + S.e + "%")),
+
+    el("div", { class: "card", style: "margin-top:10px" },
+      el("div", { class: "row" },
+        el("div", { class: "grow" },
+          el("div", { class: "money" + (money < S.b ? " low" : "") }, money + "$"),
+          el("div", { class: "hint" }, "доступно из " + S.b + "$")),
+        el("div", { class: "hint", style: "text-align:right" },
+          "💣 свободно: " + freeBombs(), el("br"), "🔬 технология: " + techText))),
+
+    el("h2", {}, "Мои города"),
+    el("div", { class: "card" }, S.ci.map((c, i) => {
+      if (c[3] !== 1) return el("div", { class: "city dead" }, c[0] + " — уничтожен");
+      const up = count("u", i);
+      return el("div", { class: "row city" },
+        el("div", { class: "grow" },
+          el("div", {}, c[0]),
+          el("div", { class: "chips", style: "margin-top:2px" },
+            el("span", { class: "tag" }, "ур." + c[1] + (up ? " → " + (c[1] + up) : "")),
+            c[2] ? el("span", { class: "tag shield" }, "🛡 щит") : null,
+            count("s", i) ? el("span", { class: "tag queued" }, "🛡 будет щит") : null)),
+        el("button", { disabled: !can("u", i), onclick: () => add(["u", i]) }, "⬆ " + COST.u + "$"),
+        el("button", { class: "ghost", disabled: !can("s", i), onclick: () => add(["s", i]) }, "🛡 " + COST.s + "$"));
+    })),
+
+    el("h2", {}, "Действия"),
+    el("div", { class: "actions" },
+      el("button", { disabled: !can("r"), onclick: () => add(["r"]) }, "🔬 Исследование", el("small", {}, COST.r + "$")),
+      el("button", { disabled: !can("p"), onclick: () => add(["p"]) }, "💣 Бомба", el("small", {}, COST.p + "$")),
+      el("button", { disabled: !can("e"), onclick: () => add(["e"]) }, "🌿 Экология", el("small", {}, COST.e + "$"))),
+
+    el("h2", {}, "Удар" + (freeBombs() > 0 ? "" : " — нет свободных бомб")),
+    el("div", { class: "card" }, S.o.map(c =>
+      el("div", { class: "target" },
+        el("div", { class: c[2].some(x => x[1]) ? "" : "dead" }, c[1]),
+        el("div", { class: "chips" }, c[2].map((city, j) => city[1] === 1
+          ? el("button", { disabled: !can("l", c[0], j), onclick: () => add(["l", c[0], j]) }, city[0])
+          : el("span", { class: "tag dead" }, city[0])))))),
+
+    el("h2", {}, "Приказы (" + queue.length + ")"),
+    el("div", { class: "card" },
+      queue.length === 0 ? el("div", { class: "hint" }, "Пока нет приказов") : null,
+      queue.map((o, i) => el("div", { class: "row order" },
+        el("div", { class: "grow" }, describe(o)),
+        el("button", { onclick: () => remove(i), title: "Отменить" }, "✕")))),
+
+    el("label", { class: "ready" },
+      el("input", { type: "checkbox", checked: ready, onclick: e => { ready = e.target.checked; render(); } }),
+      "Я закончил ход"),
+    el("div", { class: "hint", style: "margin-top:6px" },
+      "Отправка заменит все ваши приказы на этот ход."),
+  );
+
+  const label = "Отправить приказы (" + queue.length + ")";
+  if (insideTelegram) {
+    tg.MainButton.setText(label);
+    tg.MainButton.show();
+  } else {
+    const fb = document.getElementById("fallback");
+    fb.hidden = false;
+    fb.textContent = label + " — вне Telegram";
+  }
+}
+
+function submit() {
+  const data = JSON.stringify({ t: S.t, q: queue, r: ready });
+  if (insideTelegram) tg.sendData(data);   // Telegram закроет окно и передаст данные боту
+  else alert("Будет отправлено боту:\n" + data);
+}
+
+if (insideTelegram) {
+  tg.ready();
+  tg.expand();
+  tg.MainButton.onClick(submit);
+} else {
+  document.getElementById("fallback").onclick = submit;
+}
+render();
+</script>
+</body>
+</html>

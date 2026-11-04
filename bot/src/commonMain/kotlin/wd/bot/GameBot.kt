@@ -57,6 +57,8 @@ class GameBot(
     private val onOffset: (Long) -> Unit = {},
     /** Журнал для консоли ведущего: строки уже с временем. */
     private val onLog: (String) -> Unit = {},
+    /** Адрес мини-приложения (GitHub Pages); null — только кнопки в чате. */
+    private val miniAppUrl: String? = null,
 ) {
     private fun log(message: String) = onLog("${timestamp()}  $message")
 
@@ -96,8 +98,18 @@ class GameBot(
     }
 
     private fun sendReport(state: GameState, country: String, chatId: Long) {
-        enqueue(Outgoing.Send(chatId, BotText.report(state, country)))
+        enqueue(Outgoing.Send(chatId, BotText.report(state, country), reply = miniAppKeyboard(state, country), removeReply = !canOrder(state, country)))
         sendPanel(state, country, chatId)
+    }
+
+    private fun canOrder(state: GameState, country: String) = !state.isOver && state.country(country)?.isAlive == true
+
+    /** Кнопка мини-приложения со свежим состоянием страны. */
+    private fun miniAppKeyboard(state: GameState, country: String): ReplyKeyboard? {
+        val base = miniAppUrl?.takeIf { it.isNotBlank() } ?: return null
+        if (!canOrder(state, country)) return null
+        val url = MiniApp.url(base, state, country)
+        return ReplyKeyboard(listOf(listOf(KeyboardButton("🗺 Приказы на ход ${state.turn}", WebAppInfo(url)))))
     }
 
     private fun sendPanel(state: GameState, country: String, chatId: Long) {
@@ -214,6 +226,10 @@ class GameBot(
     private fun handleMessage(message: TgMessage) {
         if (message.chat.type != "private") return
         val user = message.from ?: return
+        message.webAppData?.let {
+            handleOrders(user, it.data, message.chat.id)
+            return
+        }
         val text = message.text?.trim() ?: return
         val chatId = message.chat.id
         val state = host.state
@@ -261,6 +277,63 @@ class GameBot(
         val updated = host.state ?: return
         enqueue(Outgoing.Send(chatId, "Вы — глава страны <b>${country.html()}</b>. Удачи!"))
         sendReport(updated, country, chatId)
+    }
+
+    /** Приказы из мини-приложения заменяют все приказы страны на этот ход. */
+    private fun handleOrders(user: TgUser, data: String, chatId: Long) {
+        val state = host.state ?: return
+        val country = state.countryOfLeader(user.id)
+        if (country == null) {
+            enqueue(Outgoing.Send(chatId, "Вы не глава страны в текущей партии."))
+            return
+        }
+        val parsed = runCatching { MiniApp.parseOrders(data) }.getOrElse {
+            log("Не разобраны приказы от $country: ${it.message}")
+            enqueue(Outgoing.Send(chatId, "Не удалось прочитать приказы. Откройте приказы заново."))
+            return
+        }
+        if (parsed.turn != state.turn || !canOrder(state, country)) {
+            enqueue(Outgoing.Send(chatId, "Ход ${parsed.turn} уже завершён — приказы не приняты."))
+            sendReport(state, country, chatId)
+            return
+        }
+
+        val errors = mutableListOf<String>()
+        host.update { s ->
+            var next = s.pendingOf(country).fold(s) { acc, a -> acc.cancelAction(a.id) }
+            for (order in parsed.orders) {
+                try {
+                    val target = when (order.type) {
+                        ActionType.UPGRADE, ActionType.SHIELD ->
+                            CityRef(country, next.country(country)!!.cities[order.cityIndex!!].name)
+                        ActionType.LAUNCH -> next.countries[order.countryIndex!!]
+                            .let { CityRef(it.name, it.cities[order.cityIndex!!].name) }
+                        else -> null
+                    }
+                    next = next.addAction(order.type, country, target)
+                } catch (e: ActionError) {
+                    errors += e.message.orEmpty()
+                } catch (e: IndexOutOfBoundsException) {
+                    errors += "неизвестный город"
+                }
+            }
+            next.copy(ready = if (parsed.ready) next.ready + country else next.ready - country)
+        }
+        val updated = host.state!!
+        val accepted = updated.pendingOf(country).size
+        log("Приказы из мини-приложения от $country: принято $accepted, отклонено ${errors.size}")
+
+        val text = buildString {
+            append("✅ Приказы приняты: $accepted")
+            if (parsed.ready) append(" · вы готовы")
+            if (errors.isNotEmpty()) {
+                appendLine()
+                appendLine("Не приняты:")
+                errors.forEach { appendLine("• ${it.html()}") }
+            }
+        }
+        enqueue(Outgoing.Send(chatId, text.trimEnd(), reply = miniAppKeyboard(updated, country)))
+        sendPanel(updated, country, chatId)
     }
 
     private fun handleCallback(callback: TgCallback) {

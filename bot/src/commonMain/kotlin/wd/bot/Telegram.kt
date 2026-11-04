@@ -32,11 +32,16 @@ data class TgUser(
 data class TgChat(val id: Long, val type: String)
 
 @Serializable
+data class TgWebAppData(val data: String, @SerialName("button_text") val buttonText: String = "")
+
+@Serializable
 data class TgMessage(
     @SerialName("message_id") val messageId: Long,
     val chat: TgChat,
     val from: TgUser? = null,
     val text: String? = null,
+    /** Данные, отправленные мини-приложением через Telegram.WebApp.sendData. */
+    @SerialName("web_app_data") val webAppData: TgWebAppData? = null,
 )
 
 @Serializable
@@ -59,6 +64,23 @@ data class Button(val text: String, @SerialName("callback_data") val data: Strin
 
 @Serializable
 data class Keyboard(@SerialName("inline_keyboard") val rows: List<List<Button>>)
+
+@Serializable
+data class WebAppInfo(val url: String)
+
+@Serializable
+data class KeyboardButton(val text: String, @SerialName("web_app") val webApp: WebAppInfo? = null)
+
+/** Клавиатура под полем ввода. Только из неё мини-приложение может отправить данные боту. */
+@Serializable
+data class ReplyKeyboard(
+    val keyboard: List<List<KeyboardButton>>,
+    @SerialName("resize_keyboard") val resize: Boolean = true,
+    @SerialName("is_persistent") val persistent: Boolean = true,
+)
+
+@Serializable
+private data class RemoveKeyboard(@SerialName("remove_keyboard") val remove: Boolean = true)
 
 @Serializable
 private data class ResponseParameters(@SerialName("retry_after") val retryAfter: Int? = null)
@@ -91,6 +113,7 @@ class TelegramApi(private val token: String, private val http: HttpTransport = d
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
+        encodeDefaults = true
     }
 
     private suspend fun <T> call(method: String, params: JsonObject, result: KSerializer<T>, timeout: Int = 20): T {
@@ -148,7 +171,13 @@ class TelegramApi(private val token: String, private val http: HttpTransport = d
                 put("chat_id", message.chatId)
                 put("text", message.text)
                 put("parse_mode", "HTML")
-                message.keyboard?.let { put("reply_markup", json.encodeToJsonElement(it)) }
+                val markup = when {
+                    message.keyboard != null -> json.encodeToJsonElement(message.keyboard)
+                    message.reply != null -> json.encodeToJsonElement(message.reply)
+                    message.removeReply -> json.encodeToJsonElement(RemoveKeyboard())
+                    else -> null
+                }
+                markup?.let { put("reply_markup", it) }
             }, JsonElement.serializer())
 
             is Outgoing.Edit -> call("editMessageText", buildJsonObject {
@@ -177,7 +206,13 @@ sealed interface Outgoing {
         is Answer -> "ответ на кнопку"
     }
 
-    data class Send(val chatId: Long, val text: String, val keyboard: Keyboard? = null) : Outgoing
+    data class Send(
+        val chatId: Long,
+        val text: String,
+        val keyboard: Keyboard? = null,
+        val reply: ReplyKeyboard? = null,
+        val removeReply: Boolean = false,
+    ) : Outgoing
     data class Edit(val chatId: Long, val messageId: Long, val text: String, val keyboard: Keyboard? = null) : Outgoing
     data class Answer(val callbackId: String, val text: String? = null, val alert: Boolean = false) : Outgoing
 }

@@ -10,12 +10,14 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import wd.core.ActionType
 import wd.core.GameState
 import wd.core.Leader
+import wd.core.addAction
 import wd.core.newGame
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -68,8 +70,8 @@ class GameBotTest {
     private val telegram = FakeTelegram()
     private val host = FakeHost(newGame())
 
-    private fun TestScope.startBot(): GameBot =
-        GameBot(TelegramApi("TOKEN", telegram), host, backgroundScope).also {
+    private fun TestScope.startBot(miniApp: String? = null): GameBot =
+        GameBot(TelegramApi("TOKEN", telegram), host, backgroundScope, miniAppUrl = miniApp).also {
             it.start()
             runCurrent()
         }
@@ -212,5 +214,66 @@ class GameBotTest {
         assertTrue(!report.contains("ур.0 🛡"))
         val (_, keyboard) = BotText.panel(s, "Россия")
         assertTrue(keyboard!!.rows.flatten().none { it.text.startsWith("💣") }, "без технологии нет кнопки бомбы")
+    }
+
+    private fun webApp(userId: Long, data: String) = TgUpdate(
+        updateId = 3,
+        message = TgMessage(11, TgChat(userId, "private"), TgUser(userId, "Игрок$userId"), webAppData = TgWebAppData(data)),
+    )
+
+    @Test
+    fun miniAppStateRoundTrip() {
+        val s = host.state!!.addAction(ActionType.UPGRADE, "Россия", wd.core.CityRef("Россия", "Владивосток"))
+            .addAction(ActionType.LAUNCH, "Россия", wd.core.CityRef("Китай", "Ухань"))
+        val json = Json.parseToJsonElement(MiniApp.encodeState(s, "Россия")).jsonObject
+        assertEquals("""[["u",1],["l",2,2]]""", json["q"].toString())
+        assertEquals(4, json["o"]!!.jsonArray.size, "4 чужие страны")
+
+        val url = MiniApp.url("https://example.org/app/", s, "Россия")
+        assertTrue(url.startsWith("https://example.org/app/?s="))
+        assertTrue(url.substringAfter("?s=").none { it in "+/=" }, "base64url без паддинга")
+    }
+
+    @Test
+    fun ordersFromMiniAppReplaceQueue() = runTest {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")))
+            .addAction(ActionType.ECOLOGY, "Россия")
+        val bot = startBot("https://example.org/app/")
+        // Улучшение Владивостока, щит Москве, запуск по Ухани и заведомо невозможная бомба
+        bot.handle(webApp(7, """{"t":1,"q":[["u",1],["s",0],["l",2,2],["p"]],"r":true}"""))
+        runCurrent()
+
+        val s = host.state!!
+        assertEquals(listOf(ActionType.UPGRADE, ActionType.SHIELD, ActionType.LAUNCH), s.pending.map { it.type })
+        assertEquals("Ухань", s.pending[2].target!!.city)
+        assertEquals(setOf("Россия"), s.ready)
+        val confirm = telegram.sent("sendMessage").first()
+        assertTrue(confirm["text"]!!.jsonPrimitive.content.contains("Приказы приняты: 3"))
+        assertTrue(confirm["text"]!!.jsonPrimitive.content.contains("Технология"))
+        val button = confirm["reply_markup"]!!.jsonObject["keyboard"]!!.jsonArray[0].jsonArray[0].jsonObject
+        assertTrue(button["web_app"]!!.jsonObject["url"]!!.jsonPrimitive.content.startsWith("https://example.org/app/?s="))
+    }
+
+    @Test
+    fun staleMiniAppOrdersRejected() = runTest {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")), turn = 2)
+        val bot = startBot("https://example.org/app/")
+        bot.handle(webApp(7, """{"t":1,"q":[["e"]],"r":false}"""))
+        bot.handle(webApp(7, "мусор"))
+        runCurrent()
+
+        assertTrue(host.state!!.pending.isEmpty())
+        assertTrue(telegram.texts()[0].contains("уже завершён"))
+        assertTrue(telegram.texts().any { it.contains("Не удалось прочитать") })
+    }
+
+    @Test
+    fun reportCarriesMiniAppButton() = runTest {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")))
+        val bot = startBot("https://example.org/app/")
+        bot.broadcastTurn()
+        runCurrent()
+        val report = telegram.sent("sendMessage").first()
+        assertTrue(report["reply_markup"]!!.jsonObject.containsKey("keyboard"))
     }
 }
