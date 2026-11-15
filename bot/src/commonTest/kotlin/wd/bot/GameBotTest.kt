@@ -131,6 +131,24 @@ class GameBotTest {
     }
 
     @Test
+    fun selfLaunchRequiresConfirmation() = runTest {
+        host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")))
+        val bot = startBot()
+        bot.handle(callback(7, "l:1:0:0"))
+        runCurrent()
+        assertTrue(host.state!!.pending.isEmpty())
+        assertTrue(telegram.sent("editMessageText").last()["text"]!!.jsonPrimitive.content.contains("себя бомбить"))
+        bot.handle(callback(7, "v:1:${PanelView.LAUNCH.ordinal}"))
+        assertTrue(host.state!!.pending.isEmpty(), "Нет возвращает к выбору цели")
+        bot.handle(callback(7, "l:1:0:0"))
+        bot.handle(callback(7, "lc:1:0:0"))
+        assertEquals(wd.core.CityRef("Россия", "Москва"), host.state!!.pending.single().target)
+        host.state = host.state!!.copy(turn = 2, pending = emptyList())
+        bot.handle(callback(7, "lc:1:0:0"))
+        assertTrue(host.state!!.pending.isEmpty(), "Подтверждение прошлого хода устарело")
+    }
+
+    @Test
     fun cancelAndReady() = runTest {
         host.state = host.state!!.copy(leaders = mapOf("Россия" to Leader(7, "А")))
         val bot = startBot()

@@ -81,6 +81,7 @@ object MiniApp {
             put("v", 1)
             put("t", state.turn)
             put("c", country)
+            put("mi", state.countries.indexOfFirst { it.name == country })
             put("e", state.ecology)
             put("b", me.balance)
             put("m", me.bombs)
@@ -89,6 +90,7 @@ object MiniApp {
                 listOf(ActionType.UPGRADE, ActionType.SHIELD, ActionType.RESEARCH, ActionType.PRODUCE, ActionType.ECOLOGY)
                     .forEach { add(state.cost(it)) }
             }
+            put("lc", state.cost(ActionType.LAUNCH))
             put("ml", r.maxLevel)
             putJsonArray("ci") {
                 for (city in me.cities) addJsonArray {

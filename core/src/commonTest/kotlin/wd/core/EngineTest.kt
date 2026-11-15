@@ -24,6 +24,48 @@ class EngineTest {
     )
 
     @Test
+    fun ecologyIncomeBandsAndRounding() {
+        val state = newGame()
+        val country = state.c(ru).copy(cities = listOf(City("Тест", level = 3))) // 210
+        val expected = mapOf(100 to 210, 80 to 210, 79 to 190, 60 to 190,
+            59 to 160, 40 to 160, 39 to 105, 20 to 105, 19 to 55, 1 to 55, 0 to 0)
+        expected.forEach { (ecology, income) ->
+            assertEquals(income, state.copy(ecology = ecology).incomeOf(country), "Экология $ecology")
+        }
+        val with245 = country.copy(cities = listOf(City("А", 3), City("Б")))
+        assertEquals(185, state.copy(ecology = 55).incomeOf(with245))
+        val crisis = state.copy(ecology = 55).triggerEvent(WorldEventType.CRISIS)
+        assertEquals(140, crisis.incomeOf(with245), "Округление после обоих коэффициентов")
+        val resolved = state.copy(ecology = 55).resolveTurn()
+        assertEquals(1105, resolved.c(ru).balance)
+        assertEquals(105, resolved.reportFor(ru).income)
+    }
+
+    @Test
+    fun customRulesSurviveSaveAndRejectInvalidValues() {
+        val rules = Rules(costUpgrade = 175, costProduce = 225, costLaunch = 10,
+            ecologyIncomePercents = listOf(100, 80, 60, 40, 20))
+        val state = gameFromJson(newGame(GameSetup(rules = rules)).toJson())
+        assertEquals(175, state.cost(ActionType.UPGRADE))
+        assertEquals(rules.ecologyIncomePercents, state.rules.ecologyIncomePercents)
+        assertFailsWith<IllegalArgumentException> { Rules(costUpgrade = -1).validateRules() }
+        assertFailsWith<IllegalArgumentException> { Rules(developmentInterval = 0).validateRules() }
+        assertFailsWith<IllegalArgumentException> { Rules(incomeByLevel = emptyList()).validateRules() }
+        assertFailsWith<IllegalArgumentException> { Rules(ecologyIncomeThresholds = listOf(20, 80, 1)).validateRules() }
+        assertEquals(0, Rules(ecologyResearch = 0).forCountries(5).ecologyResearch)
+    }
+
+    @Test
+    fun fullLogIncludesPrivateEventsAndPendingOrders() {
+        var state = armed().addAction(ActionType.LAUNCH, ru, ny).resolveTurn()
+        state = state.addAction(ActionType.UPGRADE, cn, CityRef(cn, "Пекин"))
+        val text = state.fullLogText()
+        assertTrue(text.contains("Россия уничтожила Нью-Йорк (США)"))
+        assertTrue(text.contains("ещё не рассчитанные приказы"))
+        assertTrue(text.contains("Китай: Улучшение: Пекин"))
+    }
+
+    @Test
     fun defaultGame() {
         val s = newGame()
         assertEquals(5, s.countries.size)
@@ -71,20 +113,21 @@ class EngineTest {
 
     @Test
     fun researchFinishesNextTurn() {
-        var s = newGame().addAction(ActionType.RESEARCH, ru).resolveTurn()
+        val queued = newGame().addAction(ActionType.RESEARCH, ru)
+        assertFailsWith<ActionError> { queued.addAction(ActionType.PRODUCE, ru) }
+        val s = queued.resolveTurn()
         assertEquals(100 + s.rules.ecologyResearch, s.ecology)
-        assertFalse(s.c(ru).tech)
-        assertFailsWith<ActionError> { s.addAction(ActionType.PRODUCE, ru) }
-        assertFailsWith<ActionError> { s.addAction(ActionType.RESEARCH, ru) }
-
-        s = s.resolveTurn()
+        assertEquals(2, s.turn)
         assertTrue(s.c(ru).tech)
+        assertFalse(s.c(ru).techInResearch)
         assertTrue(TechReady(ru) in s.lastEvents())
+        assertFailsWith<ActionError> { s.addAction(ActionType.RESEARCH, ru) }
+        s.addAction(ActionType.PRODUCE, ru)
     }
 
     @Test
     fun bombReadyAtEndOfTurn() {
-        var s = newGame().addAction(ActionType.RESEARCH, ru).resolveTurn().resolveTurn()
+        var s = newGame().addAction(ActionType.RESEARCH, ru).resolveTurn()
         s = s.addAction(ActionType.PRODUCE, ru)
         // Новая бомба ещё не готова
         assertFailsWith<ActionError> { s.addAction(ActionType.LAUNCH, ru, ny) }
@@ -295,14 +338,14 @@ class EngineTest {
     }
 
     @Test
-    fun developmentReportOnOddTurnsFromThird() {
+    fun developmentReportEveryTurnFromThird() {
         var s = newGame()
         val published = mutableListOf<Int?>()
         repeat(6) {
             s = s.resolveTurn()
             published += s.developmentReport?.turn
         }
-        assertEquals(listOf(null, 3, 3, 5, 5, 7), published)
+        assertEquals(listOf(null, 3, 4, 5, 6, 7), published)
     }
 
     @Test
@@ -315,7 +358,8 @@ class EngineTest {
 
         // Ур.0→1 (+18) у одного города может не изменить округлённый индекс
         s = s.addAction(ActionType.UPGRADE, ru, moscow).resolveTurn()
-        assertEquals(first, s.developmentReport, "на чётном ходу новый доклад не выходит")
+        assertEquals(4, s.developmentReport!!.turn)
+        assertEquals(DevelopmentEntry(ru, 50, 0), s.developmentReport!!.entries.single { it.country == ru })
 
         s = s.addAction(ActionType.UPGRADE, ru, moscow).addAction(ActionType.LAUNCH, ru, ny).resolveTurn()
         val second = s.developmentReport!!

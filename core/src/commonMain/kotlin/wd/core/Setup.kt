@@ -24,6 +24,7 @@ data class GameSetup(
 
 /** Создаёт игру. Бросает IllegalArgumentException при некорректных названиях. */
 fun newGame(setup: GameSetup = GameSetup()): GameState {
+    setup.rules.validateRules()
     val names = setup.countries.map { it.name.trim() }
     require(names.size >= 2) { "Нужно минимум 2 страны" }
     require(names.none { it.isEmpty() }) { "У страны пустое название" }

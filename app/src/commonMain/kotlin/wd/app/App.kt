@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import wd.core.GameState
 
-private enum class Screen { MENU, NEW_GAME, LOAD, SETTINGS, GAME }
+private enum class Screen { MENU, NEW_GAME, LOAD, SETTINGS, RULES, GAME }
 
 /** Системная кнопка «Назад»: (активна ли, обработчик). На ПК её нет. */
 typealias BackHandler = @Composable (enabled: Boolean, onBack: () -> Unit) -> Unit
@@ -42,7 +42,7 @@ fun App(session: HostSession, onExit: (() -> Unit)? = null, backHandler: BackHan
     // Если партия уже открыта (Android: активити пересоздана, а бот работал в фоне) — сразу в игру
     var screen by remember { mutableStateOf(if (session.controller != null) Screen.GAME else Screen.MENU) }
     val controller = session.controller
-    session.hotkeysEnabled = screen != Screen.NEW_GAME && screen != Screen.SETTINGS
+    session.hotkeysEnabled = screen != Screen.NEW_GAME && screen != Screen.SETTINGS && screen != Screen.RULES
 
     fun open(state: GameState) {
         session.open(state)
@@ -70,9 +70,10 @@ fun App(session: HostSession, onExit: (() -> Unit)? = null, backHandler: BackHan
                     onSettings = { screen = Screen.SETTINGS },
                     onExit = onExit,
                 )
-                Screen.NEW_GAME -> NewGameScreen(onStart = ::open, onBack = { screen = Screen.MENU })
+                Screen.NEW_GAME -> NewGameScreen(onStart = ::open, onBack = { screen = Screen.MENU }, initialRules = session.settings.defaultRules)
                 Screen.LOAD -> LoadScreen(session.saves, onLoad = ::open, onBack = { screen = Screen.MENU })
-                Screen.SETTINGS -> SettingsScreen(session, onBack = { screen = Screen.MENU })
+                Screen.SETTINGS -> SettingsScreen(session, onBack = { screen = Screen.MENU }, onRules = { screen = Screen.RULES })
+                Screen.RULES -> RulesScreen(session, onBack = { screen = Screen.SETTINGS })
                 Screen.GAME -> GameScreen(session, onMenu = { screen = Screen.MENU })
             }
         }
@@ -138,7 +139,7 @@ private fun LoadScreen(saves: Saves, onLoad: (GameState) -> Unit, onBack: () -> 
 }
 
 @Composable
-private fun SettingsScreen(session: HostSession, onBack: () -> Unit) = CenteredColumn {
+private fun SettingsScreen(session: HostSession, onBack: () -> Unit, onRules: () -> Unit) = CenteredColumn {
     var token by remember { mutableStateOf(session.settings.botToken) }
     var miniApp by remember { mutableStateOf(session.settings.miniAppUrl) }
     var check by remember { mutableStateOf<String?>(null) }
@@ -178,6 +179,6 @@ private fun SettingsScreen(session: HostSession, onBack: () -> Unit) = CenteredC
         Btn("Сохранить адрес", { session.updateMiniAppUrl(miniApp) }, enabled = miniApp.trim() != session.settings.miniAppUrl)
     }
     Spacer(Modifier.height(12.dp))
-    Txt("Версия 2.0.0", color = Palette.dim)
+    Btn("Параметры игры", onRules)
     Btn("Назад", onBack)
 }

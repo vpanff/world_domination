@@ -20,6 +20,7 @@ data class AppSettings(
     val botOffset: Long = 0,
     /** Адрес мини-приложения на GitHub Pages; пусто — игроки отдают приказы кнопками в чате. */
     val miniAppUrl: String = "",
+    val defaultRules: wd.core.Rules = wd.core.Rules(),
 )
 
 private const val SETTINGS = "settings"
@@ -81,7 +82,7 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
 
     private fun onStateChanged(old: GameState, new: GameState) {
         saves.autosave(new)
-        if (new.turn != old.turn) bot?.broadcastTurn()
+        if (new.turn != old.turn || new.rules != old.rules) bot?.broadcastTurn()
         else if (new.activeEvent != old.activeEvent) bot?.broadcastEvent()
     }
 
@@ -134,6 +135,10 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
     }
 
     /** Новый адрес мини-приложения применится при следующем запуске бота. */
+    fun updateDefaultRules(rules: wd.core.Rules) {
+        saveSettings(settings.copy(defaultRules = rules))
+    }
+
     fun updateMiniAppUrl(url: String) {
         saveSettings(settings.copy(miniAppUrl = url.trim()))
     }

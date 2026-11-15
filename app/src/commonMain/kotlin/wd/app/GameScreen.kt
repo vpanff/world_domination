@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import wd.core.ActionType
@@ -41,6 +42,13 @@ import wd.core.City
 import wd.core.CityRef
 import wd.core.Country
 import wd.core.describe
+import wd.core.fullLogText
+import wd.core.possibleEvents
+import wd.core.triggerEvent
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 /** Ширина, меньше которой экран переключается на вкладки (телефон). */
 private val NARROW = 900.dp
@@ -48,6 +56,18 @@ private val NARROW = 900.dp
 @Composable
 fun GameScreen(session: HostSession, onMenu: () -> Unit) {
     val controller = session.controller ?: return
+    controller.selfLaunchTarget?.let { target ->
+        Dialog(onDismissRequest = controller::dismissSelfLaunch) {
+            Panel {
+                Txt("Вы уверены, что хотите себя бомбить?")
+                Txt("Цель: ${target.city} (${target.country})")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Btn("Да", onClick = controller::confirmSelfLaunch)
+                    Btn("Нет", onClick = controller::dismissSelfLaunch)
+                }
+            }
+        }
+    }
     val saves = session.saves
     BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
         val narrow = maxWidth < NARROW
@@ -306,8 +326,28 @@ private fun QueuePanel(c: GameController, modifier: Modifier) = SidePanel("ОЧ�
 @Composable
 private fun LogPanel(c: GameController, modifier: Modifier) = SidePanel("ЛОГ", modifier) {
     val state = c.state
+    @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    var choosingEvent by remember { mutableStateOf(false) }
+    Btn("Копировать полный лог", {
+        clipboard.setText(AnnotatedString(state.fullLogText()))
+        c.message = "Полный журнал скопирован"
+    }, Modifier.fillMaxWidth())
+    if (choosingEvent && !state.isOver && state.activeEvent == null) {
+        Dialog(onDismissRequest = { choosingEvent = false }) {
+            Panel {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Txt("ВЫБЕРИТЕ СОБЫТИЕ", bold = true)
+                    state.possibleEvents().forEach { type ->
+                        val preview = state.triggerEvent(type).activeEvent!!
+                        Btn(preview.describe(), { c.triggerEvent(type); choosingEvent = false }, Modifier.fillMaxWidth())
+                    }
+                    Btn("Отмена", { choosingEvent = false })
+                }
+            }
+        }
+    }
     if (state.rules.eventsEnabled) {
-        Btn("Случайный ивент", c::triggerRandomEvent, Modifier.fillMaxWidth(), enabled = !state.isOver && state.activeEvent == null)
+        Btn("Выбрать событие", { choosingEvent = true }, Modifier.fillMaxWidth(), enabled = !state.isOver && state.activeEvent == null)
         state.activeEvent?.let { Txt(it.describe(), Modifier.padding(top = 6.dp), color = Palette.yellow, size = 13.sp) }
         Spacer(Modifier.height(6.dp))
     }

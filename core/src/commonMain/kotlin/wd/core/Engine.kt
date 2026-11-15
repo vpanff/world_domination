@@ -12,7 +12,7 @@ import kotlin.random.Random
  *   3. Запуски бомб — одновременно: страна, уничтоженная в этой фазе,
  *      всё равно наносит свои удары
  *   4. Переводы денег: получатель сможет потратить их только в следующем ходу
- *   5. Итоги: завершение исследований прошлого хода, готовые бомбы, доход
+ *   5. Итоги: завершение исследований текущего хода, готовые бомбы, доход
  *   6. Проверка конца игры
  */
 
@@ -213,8 +213,6 @@ fun GameState.resolveTurn(): GameState {
     if (isOver) throw ActionError("Игра окончена")
     val events = mutableListOf<GameEvent>()
 
-    // Исследования, начатые в этом ходу, завершатся только в следующем
-    val researchingBefore = countries.filter { it.techInResearch }.map { it.name }.toSet()
     val ecologyBefore = ecology
 
     var state = copy(pending = emptyList(), ready = emptySet())
@@ -240,7 +238,7 @@ fun GameState.resolveTurn(): GameState {
     state = state.copy(countries = state.countries.map { c ->
         if (!c.isAlive) return@map c
         var country = c
-        if (country.name in researchingBefore) {
+        if (country.techInResearch) {
             country = country.copy(tech = true, techInResearch = false)
             events += TechReady(country.name)
         }

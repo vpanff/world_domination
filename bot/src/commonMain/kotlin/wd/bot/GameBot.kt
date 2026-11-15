@@ -425,9 +425,20 @@ class GameBot(
                     "r" -> order(ActionType.RESEARCH)
                     "p" -> order(ActionType.PRODUCE)
                     "e" -> order(ActionType.ECOLOGY)
-                    "l" -> {
+                    "l", "lc" -> {
                         val target = state.countries[parts[2].toInt()]
-                        order(ActionType.LAUNCH, CityRef(target.name, target.cities[parts[3].toInt()].name))
+                        val ref = CityRef(target.name, target.cities[parts[3].toInt()].name)
+                        if (target.name == country && parts[0] == "l") {
+                            enqueue(Outgoing.Answer(callback.id))
+                            enqueue(Outgoing.Edit(message.chat.id, message.messageId,
+                                "Вы уверены, что хотите себя бомбить?\nЦель: ${ref.city.html()}",
+                                Keyboard(listOf(listOf(
+                                    Button("Да", "lc:${state.turn}:${parts[2]}:${parts[3]}"),
+                                    Button("Нет", "v:${state.turn}:${PanelView.LAUNCH.ordinal}"),
+                                )))))
+                            return
+                        }
+                        order(ActionType.LAUNCH, ref)
                     }
                     "x" -> {
                         val id = parts[2].toInt()

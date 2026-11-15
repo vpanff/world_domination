@@ -185,7 +185,6 @@ object BotText {
             PanelView.LAUNCH -> {
                 val targets = mutableListOf<Button>()
                 state.countries.forEachIndexed { ci, c ->
-                    if (c.name == country) return@forEachIndexed
                     c.cities.forEachIndexed { i, city ->
                         if (city.alive) targets += Button("${c.name}: ${city.name}", "l:$t:$ci:$i")
                     }

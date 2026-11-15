@@ -54,7 +54,7 @@ fun GameEvent.describe(): String = when (this) {
 fun GameEvent.playerText(): String = when (this) {
     is ShieldBuilt -> "$city: поставлен щит"
     is CityUpgraded -> "$city: улучшен до ур.$level"
-    is ResearchStarted -> "Начато исследование, будет готово в конце следующего хода"
+    is ResearchStarted -> "Исследование оплачено; технология готова к началу нового хода"
     is BombOrdered -> "Заказана бомба"
     is EcologyFunded -> "Вложение в экологию"
     is LaunchResult -> when (outcome) {
@@ -120,4 +120,21 @@ fun GameEvent.icon(): String = when (this) {
     is EcologyChanged -> "🌍"
     is WorldEventHappened -> event.icon()
     is GameOver -> if (result is GameResult.Winner) "🏆" else "☠"
+}
+
+/** Полный журнал ведущего в хронологическом порядке, включая тайные действия. */
+fun GameState.fullLogText(): String = buildString {
+    appendLine("Мировое господство — полный журнал партии")
+    appendLine("Страны: ${countries.joinToString { it.name }}")
+    for (entry in log) {
+        appendLine()
+        appendLine("── Ход ${entry.turn} ──")
+        entry.events.forEach { appendLine(it.describe()) }
+    }
+    if (pending.isNotEmpty()) {
+        appendLine()
+        appendLine("── Ход $turn: ещё не рассчитанные приказы ──")
+        pending.forEach { appendLine("${it.country}: ${it.describe()}") }
+    }
+    if (log.isEmpty() && pending.isEmpty()) appendLine("Событий пока нет")
 }

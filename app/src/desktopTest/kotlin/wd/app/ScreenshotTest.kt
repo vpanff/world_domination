@@ -45,6 +45,12 @@ class ScreenshotTest {
 
     private fun session() = HostSession(Memory(), Memory(), CoroutineScope(Dispatchers.Unconfined))
 
+    @Test
+    fun rulesEditorPhone() {
+        val session = session()
+        shot("rules-phone", 400, 850) { RulesScreen(session, {}) }
+    }
+
     private fun midGame(): HostSession {
         val session = session()
         session.open(newGame(GameSetup(rules = Rules(startBombs = 1))))

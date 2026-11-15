@@ -162,9 +162,12 @@ data class GameState(
 
     /** Доход страны в этом ходу с учётом ивента. */
     fun incomeOf(country: Country): Int {
-        val income = country.income(rules)
-        val event = activeEvent
-        return if (event?.type == WorldEventType.CRISIS) income * (100 - event.value) / 100 else income
+        val band = rules.ecologyIncomeThresholds.indexOfFirst { ecology >= it }
+        val ecoPercent = if (band < 0) 0 else rules.ecologyIncomePercents[band]
+        val crisisPercent = if (activeEvent?.type == WorldEventType.CRISIS) 100 - activeEvent.value else 100
+        // Округляем только один раз после обоих коэффициентов; половины — вверх.
+        val numerator = country.income(rules).toLong() * ecoPercent * crisisPercent
+        return ((numerator + 25_000) / 50_000 * 5).toInt()
     }
 
     fun countryOfLeader(telegramId: Long): String? =

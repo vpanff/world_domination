@@ -68,6 +68,13 @@
   .dev { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
   .dev.me { font-weight: 700; }
   #fallback { position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 14px; font-weight: 700; }
+  .help { min-width: 40px; min-height: 40px; border-radius: 50%; font-weight: 700; }
+  .rules-dialog { width: min(960px, 100%); height: 92vh; max-height: 100%; padding: 0;
+    border: 1px solid var(--hint); border-radius: 12px; background: var(--bg); color: var(--text); }
+  .rules-dialog::backdrop { background: rgba(0,0,0,.6); }
+  .rules-dialog[open] { display: flex; flex-direction: column; }
+  .rules-header { padding: 10px; flex-shrink: 0; }
+  .rules-dialog iframe { width: 100%; flex: 1; min-height: 0; border: 0; background: white; }
   #error { color: var(--red); white-space: pre-wrap; }
 </style>
 </head>
@@ -114,12 +121,14 @@ function decodeState() {
 }
 
 const S = decodeState();
+const ownIndex = S.mi ?? Array.from({length: S.o.length + 1}, (_, i) => i).find(i => !S.o.some(c => c[0] === i));
+const launchTargets = [...S.o, [ownIndex, S.c, S.ci.map(c => [c[0], c[3]])]];
 let queue = S.q.map(o => o.slice());
 let ready = !!S.r;
 
 // ─── Правила (повторяют ядро; окончательная проверка — в боте) ─────────────
 
-const COST = { u: S.cost[0], s: S.cost[1], r: S.cost[2], p: S.cost[3], e: S.cost[4], l: 0, t: 0 };
+const COST = { u: S.cost[0], s: S.cost[1], r: S.cost[2], p: S.cost[3], e: S.cost[4], l: S.lc ?? 0, t: 0 };
 const orderCost = o => o[0] === "t" ? o[2] : COST[o[0]];
 const count = (type, a) => queue.filter(o => o[0] === type && (a === undefined || o[1] === a)).length;
 const available = () => S.b - queue.reduce((sum, o) => sum + orderCost(o), 0);
@@ -137,7 +146,7 @@ function can(type, a, b) {
     case "p": return S.tech === 2;
     case "e": return true;
     case "l": {
-      const target = S.o.find(c => c[0] === a);
+      const target = launchTargets.find(c => c[0] === a);
       return freeBombs() >= 1 && !!target && target[2][b][1] === 1;
     }
     case "t": return !!S.tr && transferTargets().some(c => c[0] === a) && Number.isInteger(b) && b > 0 && b <= available();
@@ -147,9 +156,24 @@ function can(type, a, b) {
 
 function add(order) {
   if (!can(...order)) return;
-  queue.push(order);
-  haptic();
-  render();
+  if (order[0] === "l" && order[1] === ownIndex) {
+    const dialog = el("dialog", {},
+      el("p", {}, "Вы уверены, что хотите себя бомбить?"),
+      el("p", {}, "Цель: " + S.ci[order[2]][0]),
+      el("button", { onclick: () => { dialog.close(); dialog.remove(); accept(); } }, "Да"),
+      el("button", { onclick: () => { dialog.close(); dialog.remove(); } }, "Нет"));
+    dialog.addEventListener("cancel", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    return;
+  }
+  accept();
+  function accept() {
+    if (!can(...order)) return;
+    queue.push(order);
+    haptic();
+    render();
+  }
 }
 
 function remove(index) {
@@ -166,7 +190,7 @@ function describe(o) {
     case "p": return "💣 Производство бомбы";
     case "e": return "🌿 Экология";
     case "l": {
-      const c = S.o.find(x => x[0] === o[1]);
+      const c = launchTargets.find(x => x[0] === o[1]);
       return "🚀 Удар: " + c[2][o[2]][0] + " (" + c[1] + ")";
     }
     case "t": return "💸 Перевод → " + countryName(o[1]) + ": " + o[2] + "$";
@@ -184,7 +208,7 @@ function reportLine(e) {
   switch (e[0]) {
     case "sb": return "🛡 " + cityName(e[1], e[2]) + ": поставлен щит";
     case "up": return "⬆ " + cityName(e[1], e[2]) + ": улучшен до ур." + e[3];
-    case "rs": return "🔬 Начато исследование, будет готово в конце следующего хода";
+    case "rs": return "🔬 Исследование оплачено; технология готова к началу нового хода";
     case "bo": return "💣 Заказана бомба";
     case "ef": return "🌿 Вложение в экологию";
     case "ld": return "☢ Удар по " + cityRef(e[1], e[2]) + ": город уничтожен";
@@ -301,7 +325,8 @@ function render() {
   app.replaceChildren(...[
     el("div", { class: "row" },
       el("h1", { class: "grow" }, "Ход " + S.t + " · " + S.c),
-      el("span", { class: "hint" }, "🌍 " + S.e + "%")),
+      el("span", { class: "hint" }, "🌍 " + S.e + "%"),
+      el("button", { class: "help ghost", title: "Правила игры", "aria-label": "Правила игры", onclick: openRules }, "?")),
 
     el("div", { class: "card", style: "margin-top:10px" },
       el("div", { class: "row" },
@@ -336,7 +361,7 @@ function render() {
       el("button", { disabled: !can("e"), onclick: () => add(["e"]) }, "🌿 Экология", el("small", {}, COST.e + "$"))),
 
     el("h2", {}, "Удар" + (freeBombs() > 0 ? "" : " — нет свободных бомб")),
-    el("div", { class: "card" }, S.o.map(c =>
+    el("div", { class: "card" }, launchTargets.map(c =>
       el("div", { class: "target" },
         el("div", { class: c[2].some(x => x[1]) ? "" : "dead" }, c[1]),
         el("div", { class: "chips" }, c[2].map((city, j) => city[1] === 1
@@ -367,6 +392,37 @@ function render() {
     const fb = document.getElementById("fallback");
     fb.hidden = false;
     fb.textContent = label + " — вне Telegram";
+  }
+}
+
+// Отдельная страница внутри диалога: очередь остаётся в памяти текущего окна.
+let rulesDialog = null;
+function closeRules() {
+  if (!rulesDialog) return;
+  rulesDialog.close();
+  rulesDialog.remove();
+  rulesDialog = null;
+  if (insideTelegram) {
+    tg.BackButton.offClick(closeRules);
+    tg.BackButton.hide();
+  }
+  render();
+  document.querySelector(".help").focus();
+}
+function openRules() {
+  if (rulesDialog) return;
+  rulesDialog = el("dialog", { class: "rules-dialog", "aria-labelledby": "rules-title" },
+    el("div", { class: "row rules-header" },
+      el("strong", { id: "rules-title", class: "grow" }, "Правила игры"),
+      el("button", { onclick: closeRules }, "Назад к приказам")),
+    el("iframe", { src: "rules.html", title: "Правила Мирового господства" }));
+  rulesDialog.addEventListener("cancel", e => { e.preventDefault(); closeRules(); });
+  document.body.append(rulesDialog);
+  rulesDialog.showModal();
+  if (insideTelegram) {
+    tg.MainButton.hide();
+    tg.BackButton.onClick(closeRules);
+    tg.BackButton.show();
   }
 }
 

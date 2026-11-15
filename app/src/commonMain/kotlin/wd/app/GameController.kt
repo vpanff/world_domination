@@ -12,7 +12,8 @@ import wd.core.addTransfer
 import wd.core.cancelAction
 import wd.core.describe
 import wd.core.resolveTurn
-import wd.core.triggerRandomEvent
+import wd.core.triggerEvent
+import wd.core.WorldEventType
 import wd.core.validateTransfer
 import wd.core.validate
 
@@ -33,6 +34,17 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
     var launchFrom by mutableStateOf<String?>(null)
 
     /** Страна, для которой открыта форма перевода; null — форма закрыта. */
+    var selfLaunchTarget by mutableStateOf<CityRef?>(null)
+        private set
+
+    fun dismissSelfLaunch() { selfLaunchTarget = null }
+
+    fun confirmSelfLaunch() {
+        val target = selfLaunchTarget ?: return
+        selfLaunchTarget = null
+        add(ActionType.LAUNCH, target.country, target)
+    }
+
     var transferFrom by mutableStateOf<String?>(null)
 
     var canUndo by mutableStateOf(false)
@@ -61,8 +73,8 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
         change { it.resolveTurn() }
     }
 
-    fun triggerRandomEvent() {
-        change { it.triggerRandomEvent() }
+    fun triggerEvent(type: WorldEventType) {
+        change { it.triggerEvent(type) }
         state.activeEvent?.let { message = it.describe() }
     }
 
@@ -75,7 +87,8 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
     fun launchAt(target: CityRef) {
         val from = launchFrom ?: return
         launchFrom = null
-        add(ActionType.LAUNCH, from, target)
+        if (from == target.country) selfLaunchTarget = target
+        else add(ActionType.LAUNCH, from, target)
     }
 
     /** Откат на шаг назад. Привязки игроков к странам не откатываются. */
@@ -104,6 +117,7 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
     }
 
     private fun apply(next: GameState) {
+        selfLaunchTarget = null
         val old = state
         state = next
         canUndo = history.isNotEmpty()

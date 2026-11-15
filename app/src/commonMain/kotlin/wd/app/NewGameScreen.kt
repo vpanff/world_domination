@@ -33,9 +33,9 @@ private const val MAX_COUNTRIES = 8
 private const val MAX_START_BOMBS = 10
 
 @Composable
-fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit) {
+fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit, initialRules: Rules = Rules()) {
     var countries by remember { mutableStateOf(GameSetup.DEFAULT_COUNTRIES) }
-    var rules by remember { mutableStateOf(Rules()) }
+    var rules by remember { mutableStateOf(initialRules) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun edit(index: Int, change: (CountrySetup) -> CountrySetup) {
@@ -86,7 +86,7 @@ fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit) {
         Panel(Modifier.widthIn(max = 900.dp).fillMaxWidth()) {
             Txt("ПРАВИЛА", bold = true, color = Palette.dim)
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                RuleToggle("Случайные ивенты", rules.eventsEnabled) { rules = rules.copy(eventsEnabled = it) }
+                RuleToggle("Мировые события", rules.eventsEnabled) { rules = rules.copy(eventsEnabled = it) }
                 RuleToggle("Переводы денег между странами", rules.transfersEnabled) { rules = rules.copy(transfersEnabled = it) }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Txt("Начальных бомб у каждой страны:")

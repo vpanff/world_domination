@@ -20,7 +20,7 @@ data class Rules(
     /** Доклад округляет развитие стран, чтобы по нему нельзя было точно восстановить уровни. */
     val developmentRounding: Int = 25,
     val developmentFirstTurn: Int = 3,
-    val developmentInterval: Int = 2,
+    val developmentInterval: Int = 1,
 
     val startBalance: Int = 1000,
     val startBombs: Int = 0,
@@ -46,6 +46,8 @@ data class Rules(
 
     val eventsEnabled: Boolean = true,
     val transfersEnabled: Boolean = true,
+    val ecologyIncomeThresholds: List<Int> = listOf(80, 60, 40, 20, 1),
+    val ecologyIncomePercents: List<Int> = listOf(100, 90, 75, 50, 25),
 ) {
     val maxLevel: Int get() = incomeByLevel.size - 1
 
@@ -69,7 +71,7 @@ data class Rules(
      */
     fun forCountries(countries: Int): Rules {
         fun scale(value: Int): Int =
-            value.sign * (abs(value) * TUNED_FOR_COUNTRIES.toDouble() / countries).roundToInt().coerceAtLeast(1)
+            if (value == 0) 0 else value.sign * (abs(value) * TUNED_FOR_COUNTRIES.toDouble() / countries).roundToInt().coerceAtLeast(1)
         return copy(
             ecologyResearch = scale(ecologyResearch),
             ecologyProduce = scale(ecologyProduce),
@@ -77,4 +79,17 @@ data class Rules(
             ecologyVolcano = scale(ecologyVolcano),
         )
     }
+}
+
+/** Проверка пользовательских правил перед созданием или изменением партии. */
+fun Rules.validateRules() {
+    require(incomeByLevel.isNotEmpty() && incomeByLevel.size == developmentByLevel.size) { "Доходы и развитие: нужны списки одинаковой ненулевой длины" }
+    require((incomeByLevel + developmentByLevel).all { it in 0..1_000_000 }) { "Доходы и развитие должны быть от 0 до 1000000" }
+    require(listOf(startBalance, startBombs, costUpgrade, costShield, costResearch, costProduce, costEcology, costLaunch).all { it in 0..1_000_000 }) { "Цены и стартовые ресурсы должны быть от 0 до 1000000" }
+    require(maxEcology in 1..100 && startEcology in 0..maxEcology) { "Экология: максимум от 1 до 100, старт от 0 до максимума" }
+    require(developmentRounding in 1..1_000_000 && developmentFirstTurn >= 1 && developmentInterval >= 1) { "Параметры докладов должны быть положительными" }
+    require(eventPercent in 0..100 && volcanoMinEcology in 0..maxEcology) { "Процент события: 0–100; порог вулкана: в пределах экологии" }
+    require(ecologyResearch in -100..0 && ecologyProduce in -100..0 && ecologyVolcano in -100..0 && ecologyBoost in 0..100) { "Потери экологии: от −100 до 0; восстановление: от 0 до 100" }
+    require(ecologyIncomeThresholds.isNotEmpty() && ecologyIncomeThresholds.size == ecologyIncomePercents.size && ecologyIncomeThresholds.last() == 1 && ecologyIncomeThresholds.all { it in 1..100 } && ecologyIncomeThresholds.zipWithNext().all { (a,b) -> a > b }) { "Пороги дохода: убывающий список от 1 до 100, последний порог 1" }
+    require(ecologyIncomePercents.all { it in 0..100 } && ecologyIncomePercents.zipWithNext().all { (a,b) -> a >= b }) { "Проценты дохода: убывающий список от 0 до 100" }
 }
