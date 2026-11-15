@@ -37,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import wd.core.*
 import wd.core.ActionType
 import wd.core.City
 import wd.core.CityRef
@@ -120,10 +121,10 @@ private fun TopBar(c: GameController, saves: Saves, onMenu: () -> Unit, narrow: 
         // Узкий экран: строка состояния и строка кнопок; широкий — всё в одну строку
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) {
             Btn("Меню", onMenu)
-            Txt("ХОД ${state.turn}", size = if (narrow) 16.sp else 18.sp, bold = true)
+            Txt(if(state.isHard) "ХАРД ${state.turn.coerceAtMost(state.hardRules.rounds)}/${state.hardRules.rounds}" else "ХОД ${state.turn}", size = if (narrow) 16.sp else 18.sp, bold = true)
             if (!narrow) Txt("ЭКОЛОГИЯ", color = Palette.dim)
-            Bar(state.ecology / 100f, ecologyColor(state.ecology), if (narrow) Modifier.weight(1f) else Modifier.width(140.dp))
-            Txt("${state.ecology}%", color = ecologyColor(state.ecology), bold = true)
+            Bar(state.ecologyValue.toFloat() / 100f, ecologyColor(state.ecology), if (narrow) Modifier.weight(1f) else Modifier.width(140.dp))
+            Txt("${state.ecologyValue.short()}%", color = ecologyColor(state.ecology), bold = true)
             if (!narrow) TurnButtons(c, saves, Modifier, "ПРИМЕНИТЬ ХОД")
         }
         if (narrow) {
@@ -163,7 +164,7 @@ private fun CountryGrid(c: GameController, modifier: Modifier) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(c.state.countries, key = { it.name }) { CountryCard(c, it) }
+        items(c.state.countries, key = { it.name }) { if(c.state.isHard) HardCountryCard(c, it) else CountryCard(c, it) }
     }
 }
 
@@ -226,8 +227,8 @@ private fun CountryCard(c: GameController, country: Country) {
 }
 
 @Composable
-private fun TransferForm(c: GameController, from: String) {
-    val targets = c.state.aliveCountries().map { it.name }.filter { it != from }
+internal fun TransferForm(c: GameController, from: String) {
+    val targets = (if(c.state.isHard) c.state.countries else c.state.aliveCountries()).map { it.name }.filter { it != from }
     var to by remember { mutableStateOf<String?>(null) }
     var amount by remember { mutableStateOf("") }
     val recipient = to?.takeIf { it in targets }
@@ -243,7 +244,7 @@ private fun TransferForm(c: GameController, from: String) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Field(amount, { v -> amount = v.filter(Char::isDigit).take(9) }, Modifier.weight(1f), numeric = true)
             Txt("$", color = Palette.yellow)
-            Btn("В очередь", { c.transfer(from, recipient!!, sum) }, enabled = recipient != null && c.canTransfer(from, recipient, sum), size = 13.sp)
+            Btn(if(c.state.isHard) "Перевести сразу" else "В очередь", { c.transfer(from, recipient!!, sum) }, enabled = recipient != null && c.canTransfer(from, recipient, sum), size = 13.sp)
         }
     }
 }
@@ -346,12 +347,13 @@ private fun LogPanel(c: GameController, modifier: Modifier) = SidePanel("ЛОГ"
             }
         }
     }
-    if (state.rules.eventsEnabled) {
+    if (!state.isHard && state.rules.eventsEnabled) {
         Btn("Выбрать событие", { choosingEvent = true }, Modifier.fillMaxWidth(), enabled = !state.isOver && state.activeEvent == null)
         state.activeEvent?.let { Txt(it.describe(), Modifier.padding(top = 6.dp), color = Palette.yellow, size = 13.sp) }
         Spacer(Modifier.height(6.dp))
     }
     LazyColumn(contentPadding = PaddingValues(bottom = 8.dp)) {
+        items(c.state.liveEvents) { Txt(it.describe(), size = 13.sp) }
         for (turnLog in c.state.log.asReversed()) {
             item { Txt("── Ход ${turnLog.turn} ──", Modifier.padding(top = 6.dp), color = Palette.accent, bold = true) }
             items(turnLog.events) { Txt(it.describe(), size = 13.sp) }

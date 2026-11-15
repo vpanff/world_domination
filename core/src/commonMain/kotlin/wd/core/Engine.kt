@@ -21,7 +21,8 @@ class ActionError(message: String) : Exception(message)
 // ─── Очередь ─────────────────────────────────────────────────────────────────
 
 /** Проверяет действие с учётом уже стоящих в очереди. Бросает [ActionError]. */
-fun GameState.validate(type: ActionType, countryName: String, target: CityRef? = null) {
+fun GameState.validate(type: ActionType, countryName: String, target: CityRef? = null, amount: Int = 100, toCountry: String? = null) {
+    if (isHard) { validateHard(type, countryName, target, amount, toCountry); return }
     if (isOver) throw ActionError("Игра окончена")
     val country = country(countryName) ?: throw ActionError("Страна '$countryName' не найдена")
     if (!country.isAlive) throw ActionError("Страна '$countryName' уничтожена")
@@ -55,6 +56,7 @@ fun GameState.validate(type: ActionType, countryName: String, target: CityRef? =
             if (!country.tech) throw ActionError("Технология не изучена")
         }
 
+        ActionType.INVEST, ActionType.REBUILD, ActionType.SANCTION -> throw ActionError("Действие доступно только в хард-режиме")
         ActionType.ECOLOGY -> {}
 
         ActionType.TRANSFER -> throw ActionError("Для перевода нужны получатель и сумма")
@@ -68,9 +70,9 @@ fun GameState.validate(type: ActionType, countryName: String, target: CityRef? =
     }
 }
 
-fun GameState.addAction(type: ActionType, country: String, target: CityRef? = null): GameState {
-    validate(type, country, target)
-    val action = Action(nextActionId, type, country, target)
+fun GameState.addAction(type: ActionType, country: String, target: CityRef? = null, amount: Int = 100, toCountry: String? = null): GameState {
+    validate(type, country, target, amount, toCountry)
+    val action = Action(nextActionId, type, country, target, toCountry, if (isHard && type in listOf(ActionType.INVEST, ActionType.ECOLOGY)) amount else 0)
     return copy(pending = pending + action, nextActionId = nextActionId + 1)
 }
 
@@ -79,22 +81,31 @@ fun GameState.validateTransfer(from: String, to: String, amount: Int) {
     if (isOver) throw ActionError("Игра окончена")
     if (!rules.transfersEnabled) throw ActionError("В этой партии переводы отключены")
     val sender = country(from) ?: throw ActionError("Страна '$from' не найдена")
-    if (!sender.isAlive) throw ActionError("Страна '$from' уничтожена")
+    if (!isHard && !sender.isAlive) throw ActionError("Страна '$from' уничтожена")
     if (from == to) throw ActionError("Нельзя перевести деньги самому себе")
     val recipient = country(to) ?: throw ActionError("Страна '$to' не найдена")
-    if (!recipient.isAlive) throw ActionError("Страна '$to' уничтожена")
+    if (!isHard && !recipient.isAlive) throw ActionError("Страна '$to' уничтожена")
     if (amount <= 0) throw ActionError("Сумма перевода должна быть больше нуля")
     val available = availableBalance(from)
     if (available < amount) throw ActionError("Недостаточно средств (нужно $amount$, доступно $available$)")
 }
 
 fun GameState.addTransfer(from: String, to: String, amount: Int): GameState {
+    if (isHard) return transferNow(from, to, amount)
     validateTransfer(from, to, amount)
     val action = Action(nextActionId, ActionType.TRANSFER, from, toCountry = to, amount = amount)
     return copy(pending = pending + action, nextActionId = nextActionId + 1)
 }
 
 fun GameState.cancelAction(id: Int): GameState {
+    if (isHard) {
+        val removed = pending.find { it.id == id } ?: throw ActionError("Действие уже отменено или применено")
+        val next = copy(pending = pending.filterNot { it.id == id })
+        // Нельзя отменить производство, если на него уже опираются запуски.
+        if (removed.type == ActionType.PRODUCE && next.freeBombs(removed.country) < 0)
+            throw ActionError("Сначала отмените запуск, использующий эту бомбу")
+        return next
+    }
     if (pending.none { it.id == id }) throw ActionError("Действие уже отменено или применено")
     return copy(pending = pending.filterNot { it.id == id })
 }
@@ -103,7 +114,7 @@ fun GameState.cancelAction(id: Int): GameState {
 
 /** Ивенты, которые могут выпасть в этом ходу. */
 fun GameState.possibleEvents(): List<WorldEventType> =
-    if (!rules.eventsEnabled) emptyList()
+    if (isHard || !rules.eventsEnabled) emptyList()
     else WorldEventType.entries.filter { it != WorldEventType.VOLCANO || ecology >= rules.volcanoMinEcology }
 
 fun GameState.triggerEvent(type: WorldEventType): GameState {
@@ -135,6 +146,7 @@ private fun GameState.apply(action: Action, events: MutableList<GameEvent>): Gam
     val paid = updateCountry(country.name) { it.copy(balance = it.balance - cost) }
 
     return when (action.type) {
+        ActionType.INVEST, ActionType.REBUILD, ActionType.SANCTION -> this
         ActionType.SHIELD -> {
             val ref = action.target!!
             val city = city(ref)
@@ -210,6 +222,7 @@ private fun GameState.changeEcology(delta: Int): GameState =
 // ─── Расчёт хода ─────────────────────────────────────────────────────────────
 
 fun GameState.resolveTurn(): GameState {
+    if (isHard) return resolveHardTurn()
     if (isOver) throw ActionError("Игра окончена")
     val events = mutableListOf<GameEvent>()
 

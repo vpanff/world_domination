@@ -52,11 +52,11 @@ class GameController(initial: GameState, private val onChange: (GameState, GameS
 
     private val history = ArrayDeque<GameState>()
 
-    fun canAdd(type: ActionType, country: String, target: CityRef? = null): Boolean =
-        runCatching { state.validate(type, country, target) }.isSuccess
+    fun canAdd(type: ActionType, country: String, target: CityRef? = null, amount: Int = 100, toCountry: String? = null): Boolean =
+        runCatching { state.validate(type, country, target, amount, toCountry) }.isSuccess
 
-    fun add(type: ActionType, country: String, target: CityRef? = null) =
-        change { it.addAction(type, country, target) }
+    fun add(type: ActionType, country: String, target: CityRef? = null, amount: Int = 100, toCountry: String? = null) =
+        change { it.addAction(type, country, target, amount, toCountry) }
 
     fun canTransfer(from: String, to: String, amount: Int): Boolean =
         runCatching { state.validateTransfer(from, to, amount) }.isSuccess

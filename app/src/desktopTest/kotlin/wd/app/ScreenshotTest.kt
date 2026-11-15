@@ -70,6 +70,15 @@ class ScreenshotTest {
     }
 
     @Test
+    fun hardScreens() {
+        val hard = session().apply { open(wd.core.newHardGame()) }
+        shot("hard-new-phone", 400, 850) { NewGameScreen({}, {}, initialMode = wd.core.GameMode.HARD) }
+        shot("hard-game-phone", 400, 850) { GameScreen(hard) {} }
+        shot("hard-game-wide", 1400, 900) { GameScreen(hard) {} }
+        shot("hard-settings-phone", 400, 850) { HardRulesScreen(hard) {} }
+    }
+
+    @Test
     fun screens() {
         shot("menu", 1400, 900) { App(session()) }
         shot("console", 1000, 700) {

@@ -4,6 +4,9 @@ package wd.core
 // Эмодзи отделены от текста: в Telegram они есть, а в приложении шрифт может их не содержать.
 
 fun ActionType.title(): String = when (this) {
+    ActionType.INVEST -> "Инвестиции"
+    ActionType.REBUILD -> "Восстановление"
+    ActionType.SANCTION -> "Санкции"
     ActionType.SHIELD -> "Щит"
     ActionType.UPGRADE -> "Улучшение"
     ActionType.RESEARCH -> "Исследование"
@@ -15,18 +18,24 @@ fun ActionType.title(): String = when (this) {
 
 fun Action.describe(): String = when (type) {
     ActionType.SHIELD, ActionType.UPGRADE -> "${type.title()}: ${target?.city}"
+    ActionType.INVEST -> "Инвестиции $amount$ → $target"
+    ActionType.REBUILD -> "Восстановление → $target"
+    ActionType.SANCTION -> "Санкции → $toCountry"
+    ActionType.ECOLOGY -> if (amount > 0) "Экология: $amount$" else type.title()
     ActionType.LAUNCH -> "${type.title()} → $target"
     ActionType.TRANSFER -> "${type.title()} → $toCountry: $amount$"
     else -> type.title()
 }
 
 fun GameResult.describe(): String = when (this) {
+    is GameResult.Ranking -> "Победители: ${winners.joinToString()}. Итог по уровню жизни: " + standings.joinToString("; ") { "${it.country} ${it.life.short()}%" }
     is GameResult.Winner -> "$country победила — единственная выжившая!"
     GameResult.EcoCatastrophe -> "ЭКОЛОГИЧЕСКАЯ КАТАСТРОФА — все проигрывают!"
     GameResult.AllDestroyed -> "Все страны уничтожены — ничья!"
 }
 
 fun GameEvent.describe(): String = when (this) {
+    is HardEvent -> text
     is ShieldBuilt -> "$country поставила щит на $city"
     is CityUpgraded -> "$country улучшила $city до уровня $level"
     is ResearchStarted -> "$country начала исследование (готово в следующем ходу)"
@@ -102,6 +111,7 @@ fun WorldEvent.icon(): String = when (type) {
 }
 
 fun GameEvent.icon(): String = when (this) {
+    is HardEvent -> "•"
     is ShieldBuilt, is ShieldHit -> "🛡"
     is CityUpgraded -> "⬆"
     is ResearchStarted -> "🔬"
@@ -131,10 +141,14 @@ fun GameState.fullLogText(): String = buildString {
         appendLine("── Ход ${entry.turn} ──")
         entry.events.forEach { appendLine(it.describe()) }
     }
+    if (liveEvents.isNotEmpty()) {
+        appendLine("── Ход $turn: выполненные действия ──")
+        liveEvents.forEach { appendLine(it.describe()) }
+    }
     if (pending.isNotEmpty()) {
         appendLine()
         appendLine("── Ход $turn: ещё не рассчитанные приказы ──")
         pending.forEach { appendLine("${it.country}: ${it.describe()}") }
     }
-    if (log.isEmpty() && pending.isEmpty()) appendLine("Событий пока нет")
+    if (log.isEmpty() && pending.isEmpty() && liveEvents.isEmpty()) appendLine("Событий пока нет")
 }

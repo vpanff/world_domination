@@ -108,3 +108,6 @@ data class WorldEventHappened(val event: WorldEvent) : GameEvent {
 data class GameOver(val result: GameResult) : GameEvent {
     override val audience: String? get() = null
 }
+
+@Serializable @SerialName("hard_event")
+data class HardEvent(override val audience: String?, val text: String) : GameEvent

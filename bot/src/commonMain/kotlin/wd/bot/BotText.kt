@@ -13,7 +13,7 @@ import wd.core.reportFor
 import wd.core.validate
 
 /** Экран панели хода. */
-enum class PanelView { MAIN, LAUNCH, QUEUE, TRANSFER }
+enum class PanelView { MAIN, LAUNCH, QUEUE, TRANSFER, SANCTIONS }
 
 // Данные кнопок (лимит Telegram — 64 байта), поэтому города передаются индексами:
 //   u:<ход>:<город>       улучшение своего города
@@ -31,6 +31,7 @@ private fun GameState.can(type: ActionType, country: String, target: CityRef? = 
     runCatching { validate(type, country, target) }.isSuccess
 
 private fun Action.line(): String = when (type) {
+    ActionType.INVEST, ActionType.REBUILD, ActionType.SANCTION -> describe()
     ActionType.SHIELD -> "🛡 Щит: ${target?.city}"
     ActionType.UPGRADE -> "⬆ Улучшение: ${target?.city}"
     ActionType.RESEARCH -> "🔬 Исследование"
@@ -48,6 +49,7 @@ object BotText {
 
     /** Личный отчёт в начале хода. */
     fun report(state: GameState, country: String): String {
+        if (state.isHard) return HardBotText.report(state, country)
         val r = state.reportFor(country)
         val me = r.me
         return buildString {
@@ -116,11 +118,12 @@ object BotText {
         val text = "💸 <b>Перевод → ${to.html()}</b>\n" +
             "Доступно: ${state.availableBalance(country)}$\n\n" +
             "Отправьте сумму сообщением, например 100."
-        return text to Keyboard(listOf(listOf(Button("« Назад", "v:${state.turn}:${PanelView.MAIN.ordinal}"))))
+        return (text + if (state.isHard) "\nПеревод выполняется сразу и не отменяется с очередью." else "") to Keyboard(listOf(listOf(Button("« Назад", "v:${state.turn}:${PanelView.MAIN.ordinal}")))).forGame(state)
     }
 
     /** Панель хода: краткое состояние и кнопки приказов. */
     fun panel(state: GameState, country: String, view: PanelView = PanelView.MAIN): Pair<String, Keyboard?> {
+        if (state.isHard) return HardBotText.panel(state, country, view)
         val me = state.country(country) ?: return "Страна не найдена" to null
         val t = state.turn
         if (state.isOver) return "Игра окончена. ${state.result!!.describe().html()}" to null
@@ -146,6 +149,7 @@ object BotText {
                 PanelView.MAIN -> appendLine(if (ready) "✅ Вы готовы. Ждём остальных." else "Когда закончите — нажмите «Готово».")
                 PanelView.LAUNCH -> appendLine("🚀 <b>Выберите цель</b>")
                 PanelView.QUEUE -> appendLine("Нажмите на приказ, чтобы отменить его")
+                PanelView.SANCTIONS -> Unit
                 PanelView.TRANSFER -> appendLine("💸 <b>Кому перевести деньги?</b>")
             }
         }.trimEnd()
@@ -193,6 +197,7 @@ object BotText {
                 rows += listOf(Button("« Назад", "v:$t:${PanelView.MAIN.ordinal}"))
             }
 
+            PanelView.SANCTIONS -> Unit
             PanelView.TRANSFER -> {
                 rows += state.transferTargets(country).map { (i, name) -> Button(name, "tr:$t:$i") }.chunked(2)
                 rows += listOf(Button("« Назад", "v:$t:${PanelView.MAIN.ordinal}"))

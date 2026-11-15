@@ -15,6 +15,42 @@ class SettingsTest {
     }
 
     @Test
+    fun oldHardDefaultsUpgradeWithoutChangingSavesOrCustomBalance() {
+        val config = Memory().apply { files["settings"] = """{"defaultHardRules":{"rounds":8,"techEcologyLoss":2.0,"bombLaunchEcologyLoss":2.5,"ecologyPer100":4.0,"unAid":400}}""" }
+        val saves = Memory()
+        val old = newHardGame(HardRules(techEcologyLoss = 2.0, bombLaunchEcologyLoss = 2.5, ecologyPer100 = 4.0, unAid = 400))
+        saves.files["autosave"] = old.toJson()
+        val session = HostSession(saves, config, CoroutineScope(Dispatchers.Unconfined))
+        assertEquals(8, session.settings.defaultHardRules.rounds)
+        assertEquals(3.6, session.settings.defaultHardRules.techEcologyLoss)
+        assertEquals(7.2, session.settings.defaultHardRules.ecologyPer100)
+        assertEquals(450, session.settings.defaultHardRules.unAid)
+        assertEquals(old, session.loadAutosave())
+        val customConfig = Memory().apply { files["settings"] = """{"defaultHardRules":{"techEcologyLoss":2.0,"bombLaunchEcologyLoss":2.5,"ecologyPer100":5.0,"unAid":400}}""" }
+        val custom = HostSession(Memory(), customConfig, CoroutineScope(Dispatchers.Unconfined))
+        assertEquals(5.0, custom.settings.defaultHardRules.ecologyPer100)
+        assertEquals(400, custom.settings.defaultHardRules.unAid)
+    }
+
+    @Test
+    fun hardDefaultsAndGameModePersistIndependently() {
+        val config = Memory()
+        val saves = Memory()
+        val session = HostSession(saves, config, CoroutineScope(Dispatchers.Unconfined))
+        val hard = HardRules(bombCost = 600, rounds = 7)
+        session.updateDefaultHardRules(hard)
+        session.open(newHardGame(hard))
+        session.controller!!.add(ActionType.INVEST, "Великобритания", CityRef("Великобритания", "Лондон"), amount = 123)
+        val restored = HostSession(saves, config, CoroutineScope(Dispatchers.Unconfined))
+        assertEquals(hard, restored.settings.defaultHardRules)
+        assertEquals(150, restored.settings.defaultRules.costProduce)
+        val state = restored.loadAutosave()!!
+        assertEquals(GameMode.HARD, state.mode)
+        assertEquals(123, state.pending.single().amount)
+        assertEquals(hard, state.hardRules)
+    }
+
+    @Test
     fun defaultRulesPersistWithoutChangingOpenGame() {
         val config = Memory()
         val saves = Memory()

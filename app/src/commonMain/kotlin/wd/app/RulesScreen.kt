@@ -80,7 +80,7 @@ fun RulesScreen(session: HostSession, onBack: () -> Unit) {
             message = runCatching { session.updateDefaultRules(parse()); "Параметры сохранены" }.getOrElse { it.message ?: "Проверьте значения" }
         })
         val controller = session.controller
-        if (controller != null) {
+        if (controller != null && !controller.state.isHard) {
             Txt("Применить к открытой партии можно при пустой очереди и без события. Баланс, бомбы и уровни сохранятся; стартовые значения действуют только в новых партиях.")
             Btn("Применить к открытой партии", {
                 message = runCatching {

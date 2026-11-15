@@ -28,14 +28,21 @@ import wd.core.GameSetup
 import wd.core.GameState
 import wd.core.Rules
 import wd.core.newGame
+import wd.core.GameMode
+import wd.core.HardRules
+import wd.core.HARD_COUNTRIES
 
 private const val MAX_COUNTRIES = 8
 private const val MAX_START_BOMBS = 10
 
 @Composable
-fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit, initialRules: Rules = Rules()) {
+fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit, initialRules: Rules = Rules(), initialHardRules: HardRules = HardRules(), initialMode: GameMode = GameMode.CLASSIC) {
+    var mode by remember { mutableStateOf(initialMode) }
     var countries by remember { mutableStateOf(GameSetup.DEFAULT_COUNTRIES) }
+    var hardCountries by remember { mutableStateOf(HARD_COUNTRIES) }
     var rules by remember { mutableStateOf(initialRules) }
+    var roundText by remember { mutableStateOf(initialHardRules.rounds.toString()) }
+    val roundCount = roundText.toIntOrNull()
     var error by remember { mutableStateOf<String?>(null) }
 
     fun edit(index: Int, change: (CountrySetup) -> CountrySetup) {
@@ -48,6 +55,37 @@ fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit, initialRules
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Txt("НОВАЯ ИГРА", size = 24.sp, bold = true)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn("Классический", { mode = GameMode.CLASSIC }, color = if(mode == GameMode.CLASSIC) Palette.accent else Palette.button)
+            Btn("Хард", { mode = GameMode.HARD }, color = if(mode == GameMode.HARD) Palette.accent else Palette.button)
+        }
+        if (mode == GameMode.HARD) {
+            Txt("${HARD_COUNTRIES.size} стран × 4 города", bold = true)
+            Txt("Ограничение раундов (1–100):")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn("−", { roundText = (roundCount!! - 1).toString() }, enabled = roundCount != null && roundCount > 1)
+                Field(roundText, { roundText = it.filter(Char::isDigit).take(3); error = null }, Modifier.width(90.dp), numeric = true)
+                Btn("+", { roundText = (roundCount!! + 1).toString() }, enabled = roundCount != null && roundCount < 100)
+            }
+            Txt("Победитель определяется после выбранного числа раундов.", color = Palette.dim)
+            Txt("Победа по уровню жизни. Инвестиции, санкции, восстановление и мгновенные переводы. Деньги округляются до целого.")
+            Txt("${initialHardRules.startBalance}$ · жизнь ${initialHardRules.startLife}% · развитие ${initialHardRules.startDevelopment}")
+            Txt("Названия стран и городов можно изменить", color = Palette.dim)
+            hardCountries.forEachIndexed { i, country ->
+                Panel(Modifier.widthIn(max = 900.dp).fillMaxWidth()) {
+                    Field(country.name, { name -> hardCountries = hardCountries.mapIndexed { j, c -> if (i == j) c.copy(name = name) else c } }, Modifier.fillMaxWidth())
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        country.cities.forEachIndexed { j, city ->
+                            Field(city, { name -> hardCountries = hardCountries.mapIndexed { k, c ->
+                                if (k == i) c.copy(cities = c.cities.mapIndexed { n, old -> if (n == j) name else old }) else c
+                            } }, Modifier.width(140.dp))
+                        }
+                    }
+                }
+            }
+            Btn("Стандартные названия", { hardCountries = HARD_COUNTRIES; error = null })
+            Txt("Параметры хард-режима меняются в настройках перед созданием партии.")
+        } else {
         Txt("Названия стран и городов можно изменить", color = Palette.dim)
 
         countries.forEachIndexed { i, country ->
@@ -97,13 +135,18 @@ fun NewGameScreen(onStart: (GameState) -> Unit, onBack: () -> Unit, initialRules
             }
         }
 
+        }
         error?.let { Txt(it, color = Palette.red) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn("Назад", onBack)
             Btn("НАЧАТЬ", {
                 try {
-                    onStart(newGame(GameSetup(countries, rules)))
+                    val hardRules = if (mode == GameMode.HARD) {
+                        require(roundCount != null && roundCount in 1..100) { "Укажите число раундов от 1 до 100" }
+                        initialHardRules.copy(rounds = roundCount)
+                    } else initialHardRules
+                    onStart(newGame(GameSetup(if (mode == GameMode.HARD) hardCountries else countries, rules, mode, hardRules)))
                 } catch (e: IllegalArgumentException) {
                     error = e.message
                 }

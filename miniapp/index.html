@@ -121,6 +121,7 @@ function decodeState() {
 }
 
 const S = decodeState();
+if (S.hard) location.replace("hard.html" + location.search);
 const ownIndex = S.mi ?? Array.from({length: S.o.length + 1}, (_, i) => i).find(i => !S.o.some(c => c[0] === i));
 const launchTargets = [...S.o, [ownIndex, S.c, S.ci.map(c => [c[0], c[3]])]];
 let queue = S.q.map(o => o.slice());
@@ -427,7 +428,7 @@ function openRules() {
 }
 
 function submit() {
-  const data = JSON.stringify({ t: S.t, q: queue, r: ready });
+  const data = JSON.stringify({ t: S.t, g: S.g, q: queue, r: ready });
   if (insideTelegram) tg.sendData(data);   // Telegram закроет окно и передаст данные боту
   else alert("Будет отправлено боту:\n" + data);
 }
@@ -439,7 +440,7 @@ if (insideTelegram) {
 } else {
   document.getElementById("fallback").onclick = submit;
 }
-render();
+if (!S.hard) render();
 </script>
 </body>
 </html>

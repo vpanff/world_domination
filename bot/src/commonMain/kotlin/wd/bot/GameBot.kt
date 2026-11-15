@@ -21,6 +21,9 @@ import wd.core.cancelAction
 import wd.core.describe
 import wd.core.icon
 import wd.core.validateTransfer
+import wd.core.transferNow
+import wd.core.MoneyReceived
+import wd.core.short
 
 /** Партия, которой управляет бот. Все вызовы — из главного потока. */
 interface GameHost {
@@ -73,7 +76,10 @@ class GameBot(
         private set
 
     /** Кто сейчас вводит сумму перевода: игрок → получатель и ход. */
-    private val transferDrafts = mutableMapOf<Long, Pair<String, Int>>()
+    private data class TransferDraft(val to: String, val turn: Int, val gameId: String)
+    private data class AmountDraft(val type: ActionType, val target: CityRef?, val turn: Int, val gameId: String)
+    private val transferDrafts = mutableMapOf<Long, TransferDraft>()
+    private val amountDrafts = mutableMapOf<Long, AmountDraft>()
 
     /** Очередь переживает перезапуск бота: что не успело уйти, уйдёт после старта. */
     private val outbox = Channel<Outgoing>(Channel.UNLIMITED)
@@ -116,6 +122,17 @@ class GameBot(
         }
     }
 
+    fun broadcastTransfers(old: GameState, new: GameState) {
+        if (!new.isHard || old.gameId != new.gameId || new.liveEvents.size <= old.liveEvents.size) return
+        for (event in new.liveEvents.drop(old.liveEvents.size).filterIsInstance<MoneyReceived>()) {
+            for (country in listOf(event.from, event.to)) {
+                val chatId = new.leaders[country]?.telegramId ?: continue
+                enqueue(Outgoing.Send(chatId, "💸 ${event.from.html()} → ${event.to.html()}: ${event.amount}$, перевод выполнен.", reply = miniAppKeyboard(new, country)))
+                sendPanel(new, country, chatId)
+            }
+        }
+    }
+
     private fun sendReport(state: GameState, country: String, chatId: Long, withDevelopment: Boolean = false) {
         enqueue(Outgoing.Send(chatId, BotText.report(state, country), reply = miniAppKeyboard(state, country), removeReply = !canOrder(state, country)))
         val development = state.developmentReport?.takeIf { withDevelopment && it.turn == state.turn }
@@ -123,7 +140,7 @@ class GameBot(
         sendPanel(state, country, chatId)
     }
 
-    private fun canOrder(state: GameState, country: String) = !state.isOver && state.country(country)?.isAlive == true
+    private fun canOrder(state: GameState, country: String) = !state.isOver && (state.isHard || state.country(country)?.isAlive == true)
 
     /** Кнопка мини-приложения со свежим состоянием страны. */
     private fun miniAppKeyboard(state: GameState, country: String): ReplyKeyboard? {
@@ -259,6 +276,21 @@ class GameBot(
             return
         }
 
+        if (user.id in amountDrafts) {
+            val draft = amountDrafts.remove(user.id)!!
+            if (!text.startsWith("/")) {
+                val country = state.countryOfLeader(user.id)
+                val amount = text.removeSuffix("$").trim().toIntOrNull()
+                val error = runCatching {
+                    if (country == null || state.turn != draft.turn || state.gameId != draft.gameId) throw ActionError("Приказ устарел")
+                    if (amount == null) throw ActionError("Введите целую положительную сумму")
+                    host.update { it.addAction(draft.type, country, draft.target, amount).copy(ready = it.ready - country) }
+                }.exceptionOrNull()
+                if (error != null) enqueue(Outgoing.Send(chatId, error.message.orEmpty().html()))
+                if (country != null) sendPanel(host.state!!, country, chatId)
+                return
+            }
+        }
         // Команда отменяет ввод суммы, любой другой текст считается суммой
         if (user.id in transferDrafts) {
             if (!text.startsWith("/")) {
@@ -311,9 +343,10 @@ class GameBot(
 
     private fun handleTransferAmount(user: TgUser, text: String, chatId: Long) {
         val state = host.state ?: return
-        val (to, turn) = transferDrafts.getValue(user.id)
+        val draft = transferDrafts.getValue(user.id)
+        val (to, turn) = draft
         val country = state.countryOfLeader(user.id)
-        if (country == null || turn != state.turn || !canOrder(state, country)) {
+        if (country == null || turn != state.turn || draft.gameId != state.gameId || !canOrder(state, country)) {
             transferDrafts.remove(user.id)
             enqueue(Outgoing.Send(chatId, "Этот ход уже завершён — перевод не принят."))
             return
@@ -347,36 +380,55 @@ class GameBot(
             enqueue(Outgoing.Send(chatId, "Не удалось прочитать приказы. Откройте приказы заново."))
             return
         }
+        if ((state.isHard && parsed.gameId != state.gameId) || (parsed.gameId != null && parsed.gameId != state.gameId)) {
+            enqueue(Outgoing.Send(chatId, "Это мини-приложение другой партии. Откройте /panel."))
+            return
+        }
         if (parsed.turn != state.turn || !canOrder(state, country)) {
             enqueue(Outgoing.Send(chatId, "Ход ${parsed.turn} уже завершён — приказы не приняты."))
             sendReport(state, country, chatId)
             return
         }
 
+        if (parsed.transfer != null) {
+            val transfer = parsed.transfer
+            val error = runCatching {
+                if (!state.isHard) throw ActionError("Мгновенные переводы доступны только в хард-режиме")
+                val to = state.countries.getOrNull(transfer.countryIndex)?.name ?: throw ActionError("Получатель не найден")
+                host.update { it.transferNow(country, to, transfer.amount, transfer.requestId) }
+            }.exceptionOrNull()
+            enqueue(Outgoing.Send(chatId, error?.message?.html() ?: "Перевод выполнен.", reply = miniAppKeyboard(host.state!!, country)))
+            sendPanel(host.state!!, country, chatId)
+            return
+        }
         val errors = mutableListOf<String>()
         host.update { s ->
-            var next = s.pendingOf(country).fold(s) { acc, a -> acc.cancelAction(a.id) }
-            for (order in parsed.orders) {
+            var next = s.copy(pending = s.pending.filterNot { it.country == country })
+            // Производство перед запуском, независимо от порядка элементов в форме.
+            val orders = if (s.isHard) parsed.orders.sortedBy { it.type.priority } else parsed.orders
+            for (order in orders) {
                 try {
                     if (order.type == ActionType.TRANSFER) {
+                        if (s.isHard) throw ActionError("Отправляйте мгновенный перевод отдельно от очереди")
                         next = next.addTransfer(country, next.countries[order.countryIndex!!].name, order.amount!!)
                         continue
                     }
                     val target = when (order.type) {
-                        ActionType.UPGRADE, ActionType.SHIELD ->
+                        ActionType.UPGRADE, ActionType.SHIELD, ActionType.INVEST, ActionType.REBUILD ->
                             CityRef(country, next.country(country)!!.cities[order.cityIndex!!].name)
                         ActionType.LAUNCH -> next.countries[order.countryIndex!!]
                             .let { CityRef(it.name, it.cities[order.cityIndex!!].name) }
                         else -> null
                     }
-                    next = next.addAction(order.type, country, target)
+                    next = next.addAction(order.type, country, target, amount = order.amount ?: 100,
+                        toCountry = if (order.type == ActionType.SANCTION) next.countries[order.countryIndex!!].name else null)
                 } catch (e: ActionError) {
                     errors += e.message.orEmpty()
                 } catch (e: IndexOutOfBoundsException) {
                     errors += "неизвестный город"
                 }
             }
-            next.copy(ready = if (parsed.ready) next.ready + country else next.ready - country)
+            next.copy(ready = if (parsed.ready && (!s.isHard || errors.isEmpty())) next.ready + country else next.ready - country)
         }
         val updated = host.state!!
         val accepted = updated.pendingOf(country).size
@@ -384,7 +436,7 @@ class GameBot(
 
         val text = buildString {
             append("✅ Приказы приняты: $accepted")
-            if (parsed.ready) append(" · вы готовы")
+            if (country in updated.ready) append(" · вы готовы")
             if (errors.isNotEmpty()) {
                 appendLine()
                 appendLine("Не приняты:")
@@ -397,6 +449,7 @@ class GameBot(
 
     private fun handleCallback(callback: TgCallback) {
         transferDrafts.remove(callback.from.id)
+        amountDrafts.remove(callback.from.id)
         val state = host.state
         val message = callback.message
         val country = state?.countryOfLeader(callback.from.id)
@@ -410,6 +463,11 @@ class GameBot(
         var view = PanelView.MAIN
         var notice: String? = null
 
+        val gameToken = parts.lastOrNull()?.takeIf { it.startsWith("g") }
+        if ((state.isHard && gameToken != "g" + state.gameId.take(8)) || (gameToken != null && gameToken != "g" + state.gameId.take(8))) {
+            enqueue(Outgoing.Answer(callback.id, "Кнопка другой партии. Откройте /panel", alert = true))
+            return
+        }
         if (turn != state.turn || state.isOver) {
             notice = "Этот ход уже завершён — вот актуальная панель"
         } else {
@@ -420,6 +478,17 @@ class GameBot(
             }
             try {
                 when (parts[0]) {
+                    "iv", "he" -> {
+                        if (!state.isHard) throw ActionError("Только для хард-режима")
+                        val type = if (parts[0] == "iv") ActionType.INVEST else ActionType.ECOLOGY
+                        val target = if (type == ActionType.INVEST) ownCity(parts[2].toInt()) else null
+                        amountDrafts[callback.from.id] = AmountDraft(type, target, state.turn, state.gameId)
+                        enqueue(Outgoing.Answer(callback.id))
+                        enqueue(Outgoing.Send(message.chat.id, "Отправьте целую сумму ${if (target == null) "на экологию" else "для ${target.city.html()}"}. Доступно ${state.availableBalance(country)}$. /panel — отмена."))
+                        return
+                    }
+                    "rb" -> order(ActionType.REBUILD, ownCity(parts[2].toInt()))
+                    "sn" -> host.update { it.addAction(ActionType.SANCTION, country, toCountry = state.countries[parts[2].toInt()].name).copy(ready = it.ready - country) }
                     "u" -> order(ActionType.UPGRADE, ownCity(parts[2].toInt()))
                     "s" -> order(ActionType.SHIELD, ownCity(parts[2].toInt()))
                     "r" -> order(ActionType.RESEARCH)
@@ -435,7 +504,7 @@ class GameBot(
                                 Keyboard(listOf(listOf(
                                     Button("Да", "lc:${state.turn}:${parts[2]}:${parts[3]}"),
                                     Button("Нет", "v:${state.turn}:${PanelView.LAUNCH.ordinal}"),
-                                )))))
+                                ))).forGame(state)))
                             return
                         }
                         order(ActionType.LAUNCH, ref)
@@ -449,7 +518,7 @@ class GameBot(
                     "tr" -> {
                         val to = state.countries[parts[2].toInt()].name
                         state.validateTransfer(country, to, 1)
-                        transferDrafts[callback.from.id] = to to state.turn
+                        transferDrafts[callback.from.id] = TransferDraft(to, state.turn, state.gameId)
                         enqueue(Outgoing.Answer(callback.id))
                         val (text, keyboard) = BotText.transferPrompt(state, country, to)
                         enqueue(Outgoing.Edit(message.chat.id, message.messageId, text, keyboard))

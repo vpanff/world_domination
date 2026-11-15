@@ -15,6 +15,14 @@ import kotlin.test.Test
 
 /** Пишет ссылку на локальное мини-приложение с настоящим состоянием — для ручной проверки в браузере. */
 class MiniAppSampleTest {
+    @Test fun hardSample() {
+        val state = wd.core.newHardGame().updateCountry("Великобритания") { it.copy(tech = true, balance = 5000, bombs = 1) }
+        val page = File("../miniapp/hard.html").canonicalFile
+        File("build/hard-miniapp-sample-url.txt").writeText(MiniApp.url("file://$page", state, "Великобритания"))
+        val ruined = state.updateCountry("Великобритания") { c -> c.copy(cities = c.cities.map { it.copy(alive = false, life = 0.0, development = 0.0) }) }
+        File("build/hard-miniapp-ruined-url.txt").writeText(MiniApp.url("file://$page", ruined, "Великобритания"))
+    }
+
     @Test
     fun writeSampleUrl() {
         val state = newGame(GameSetup(rules = Rules(startBombs = 1)))

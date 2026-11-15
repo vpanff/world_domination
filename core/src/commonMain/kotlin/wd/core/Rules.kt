@@ -58,6 +58,7 @@ data class Rules(
         ActionType.PRODUCE -> costProduce
         ActionType.ECOLOGY -> costEcology
         ActionType.LAUNCH -> costLaunch
+        ActionType.INVEST, ActionType.REBUILD, ActionType.SANCTION -> 0
         ActionType.TRANSFER -> 0   // сумма у каждого перевода своя, см. GameState.cost(Action)
     }
 

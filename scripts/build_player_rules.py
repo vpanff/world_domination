@@ -42,14 +42,14 @@ def document(body, navigation=""):
             '<title>Мировое господство — правила для игроков</title>'
             f'<style>{STYLE}</style></head><body>{navigation}<main>{body}</main></body></html>\n')
 
-def main():
-    source = SOURCE.read_text(encoding="utf-8")
+def build(source_path, stem):
+    source = source_path.read_text(encoding="utf-8")
     renderer = markdown.Markdown(extensions=["tables", "toc"], extension_configs={"toc": {"toc_depth": "2"}})
     body = renderer.convert(source)
-    nav = '<nav><a href="rules.pdf" target="_blank" rel="noopener" download>Скачать правила в PDF</a></nav>'
+    nav = '<nav><a href="' + stem + '.pdf" target="_blank" rel="noopener" download>Скачать правила в PDF</a></nav>'
     html = document(body, nav + '<details><summary>Содержание</summary>' + renderer.toc + '</details>')
     OUTPUT.mkdir(exist_ok=True)
-    (OUTPUT / "rules.html").write_text(html, encoding="utf-8")
+    (OUTPUT / (stem + ".html")).write_text(html, encoding="utf-8")
     # PDF uses the same content; exclude web navigation and keep print sizes explicit for Writer.
     print_style = """
     @page { size: A4; margin: 16mm; }
@@ -74,8 +74,12 @@ def main():
         pdf = (work / "rules.pdf").read_bytes()
         if not pdf.startswith(b"%PDF-"):
             raise RuntimeError("LibreOffice did not create a PDF")
-        (OUTPUT / "rules.pdf").write_bytes(pdf)
-    print("Created miniapp/rules.html and miniapp/rules.pdf")
+        (OUTPUT / (stem + ".pdf")).write_bytes(pdf)
+    print(f"Created miniapp/{stem}.html and miniapp/{stem}.pdf")
+
+def main():
+    build(SOURCE, "rules")
+    build(ROOT / "docs/HARD_RULES.md", "hard-rules")
 
 if __name__ == "__main__":
     main()

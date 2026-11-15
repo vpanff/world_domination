@@ -18,6 +18,8 @@ data class City(
     val level: Int = 0,
     val alive: Boolean = true,
     val shield: Boolean = false,
+    val life: Double = 80.0,
+    val development: Double = 80.0,
 )
 
 @Serializable
@@ -51,6 +53,9 @@ enum class ActionType(val priority: Int) {
     ECOLOGY(2),
     LAUNCH(3),
     TRANSFER(4),
+    INVEST(2),
+    REBUILD(0),
+    SANCTION(2),
 }
 
 /**
@@ -78,6 +83,9 @@ sealed interface GameResult {
 
     @Serializable
     data object AllDestroyed : GameResult
+
+    @Serializable
+    data class Ranking(val standings: List<HardStanding>, val winners: List<String>) : GameResult
 }
 
 @Serializable
@@ -127,7 +135,21 @@ data class GameState(
     val activeEvent: WorldEvent? = null,
     /** Последний опубликованный доклад о развитии. */
     val developmentReport: DevelopmentReport? = null,
+    val mode: GameMode = GameMode.CLASSIC,
+    val hardRules: HardRules = HardRules(),
+    val hardEcology: Double = 100.0,
+    val gameId: String = "",
+    /** Мгновенные действия текущего хода; включаются в журнал при расчёте. */
+    val liveEvents: List<GameEvent> = emptyList(),
+    val processedTransfers: Set<String> = emptySet(),
 ) {
+    val isHard: Boolean get() = mode == GameMode.HARD
+    val ecologyValue: Double get() = if (isHard) hardEcology else ecology.toDouble()
+    val canParticipate: Boolean get() = !isOver
+    fun freeBombs(country: String): Int {
+        val c = country(country) ?: return 0
+        return c.bombs + (if (isHard) pendingOf(country).count { it.type == ActionType.PRODUCE } else 0) - pendingOf(country).count { it.type == ActionType.LAUNCH }
+    }
     val isOver: Boolean get() = result != null
 
     fun country(name: String): Country? = countries.find { it.name == name }
@@ -144,10 +166,16 @@ data class GameState(
         return c.balance - pendingOf(country).sumOf { cost(it) }
     }
 
-    fun cost(action: Action): Int = if (action.type == ActionType.TRANSFER) action.amount else cost(action.type)
+    fun cost(action: Action): Int = when {
+        action.type == ActionType.TRANSFER || action.type == ActionType.INVEST -> action.amount
+        isHard && action.type == ActionType.ECOLOGY -> action.amount
+        isHard && action.type == ActionType.REBUILD -> rebuildCost(action.country)
+        else -> cost(action.type)
+    }
 
     /** Цена действия в этом ходу с учётом ивента. */
     fun cost(type: ActionType): Int {
+        if (isHard) return hardRules.cost(type)
         val base = rules.cost(type)
         val event = activeEvent ?: return base
         val discounted = when (event.type) {
@@ -162,6 +190,7 @@ data class GameState(
 
     /** Доход страны в этом ходу с учётом ивента. */
     fun incomeOf(country: Country): Int {
+        if (isHard) return hardIncome(country)
         val band = rules.ecologyIncomeThresholds.indexOfFirst { ecology >= it }
         val ecoPercent = if (band < 0) 0 else rules.ecologyIncomePercents[band]
         val crisisPercent = if (activeEvent?.type == WorldEventType.CRISIS) 100 - activeEvent.value else 100

@@ -64,7 +64,7 @@ fun BotPanel(session: HostSession, modifier: Modifier) {
                 }, enabled = bot != null && state.leaders.isNotEmpty(), size = 13.sp)
             }
 
-            val alive = state.aliveCountries().map { it.name }
+            val alive = (if(state.isHard) state.countries else state.aliveCountries()).map { it.name }
             val readyCount = alive.count { it in state.ready }
             Txt("Готовы: $readyCount из ${alive.size}", color = if (readyCount == alive.size) Palette.green else Palette.dim, size = 13.sp)
 

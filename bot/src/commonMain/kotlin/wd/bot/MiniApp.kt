@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import wd.core.*
 import wd.core.Action
 import wd.core.ActionFailed
 import wd.core.ActionType
@@ -44,7 +45,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 /** Приказ из мини-приложения: города и страны — индексами, как в кнопках бота. */
 data class MiniOrder(val type: ActionType, val countryIndex: Int? = null, val cityIndex: Int? = null, val amount: Int? = null)
 
-data class MiniOrders(val turn: Int, val orders: List<MiniOrder>, val ready: Boolean)
+data class InstantTransfer(val countryIndex: Int, val amount: Int, val requestId: String)
+data class MiniOrders(val turn: Int, val orders: List<MiniOrder>, val ready: Boolean, val gameId: String? = null, val transfer: InstantTransfer? = null)
 
 /**
  * Обмен с мини-приложением (miniapp/index.html).
@@ -58,6 +60,7 @@ object MiniApp {
     private val base64 = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)
 
     private val codes = mapOf(
+        ActionType.INVEST to "i", ActionType.REBUILD to "b", ActionType.SANCTION to "n",
         ActionType.UPGRADE to "u", ActionType.SHIELD to "s", ActionType.RESEARCH to "r",
         ActionType.PRODUCE to "p", ActionType.ECOLOGY to "e", ActionType.LAUNCH to "l", ActionType.TRANSFER to "t",
     )
@@ -75,11 +78,13 @@ object MiniApp {
     }
 
     internal fun encodeState(state: GameState, country: String, withReport: Boolean = true): String {
+        if (state.isHard) return encodeHardState(state, country, withReport)
         val me = state.country(country)!!
         val r = state.rules
         return buildJsonObject {
             put("v", 1)
             put("t", state.turn)
+            put("g", state.gameId)
             put("c", country)
             put("mi", state.countries.indexOfFirst { it.name == country })
             put("e", state.ecology)
@@ -140,6 +145,7 @@ object MiniApp {
             add(code); add(ki); add(ci)
         }
         when (e) {
+            is HardEvent -> { add("ev"); add(e.text) }
             is ShieldBuilt -> code("sb", CityRef(e.country, e.city))
             is CityUpgraded -> { code("up", CityRef(e.country, e.city)); add(e.level) }
             is ResearchStarted -> add("rs")
@@ -169,6 +175,10 @@ object MiniApp {
         return kotlinx.serialization.json.buildJsonArray {
             add(code)
             when (a.type) {
+                ActionType.INVEST -> { add(state.country(a.country)!!.cities.indexOfFirst { it.name == t!!.city }); add(a.amount) }
+                ActionType.REBUILD -> add(state.country(a.country)!!.cities.indexOfFirst { it.name == t!!.city })
+                ActionType.SANCTION -> add(state.countries.indexOfFirst { it.name == a.toCountry })
+                ActionType.ECOLOGY -> if (state.isHard) add(a.amount)
                 ActionType.UPGRADE, ActionType.SHIELD -> add(state.country(a.country)!!.cities.indexOfFirst { it.name == t!!.city })
                 ActionType.LAUNCH -> {
                     val ki = state.countries.indexOfFirst { it.name == t!!.country }
@@ -182,19 +192,48 @@ object MiniApp {
         }
     }
 
+    private fun encodeHardState(state: GameState, country: String, withReport: Boolean): String {
+        val me = state.country(country)!!
+        val r = state.hardRules
+        return buildJsonObject {
+            put("v", 2); put("hard", true); put("g", state.gameId)
+            put("t", state.turn); put("rounds", r.rounds); put("c", country)
+            put("mi", state.countries.indexOfFirst { it.name == country })
+            put("e", state.hardEcology); put("b", me.balance); put("m", me.bombs); put("tech", if (me.tech) 2 else 0)
+            put("r", country in state.ready)
+            putJsonArray("cost") { add(r.techCost); add(r.bombCost); add(r.shieldCost); add(state.rebuildCost(country)) }
+            putJsonArray("limit") { add(r.maxBombsBuiltPerRound); add(if (r.launchLimit) r.maxLaunchesPerRound else -1); add(if (!r.finalRoundStrikes && state.turn == r.rounds) 1 else 0) }
+            put("income", state.incomeOf(me)); put("upkeep", r.bombUpkeep); put("aid", r.unAid)
+            put("sanction", r.sanctionPercent); put("sanctionCap", r.sanctionCapPercent)
+            putJsonArray("ci") { me.cities.forEach { addJsonArray { add(it.name); add(it.life); add(it.development); add(if(it.shield) 1 else 0); add(if(it.alive) 1 else 0) } } }
+            putJsonArray("o") {
+                state.countries.forEachIndexed { ki, c -> if (c.name != country) addJsonArray {
+                    add(ki); add(c.name); addJsonArray { c.cities.forEach { addJsonArray { add(it.name); add(if(it.alive) 1 else 0) } } }
+                } }
+            }
+            putJsonArray("q") { state.pendingOf(country).forEach { add(encodeOrder(state, it)) } }
+            if (withReport) putJsonArray("report") { state.log.lastOrNull()?.events.orEmpty().filter { it.visibleTo(country) }.forEach { add(it.playerText()) } }
+        }.toString()
+    }
+
     /** Разбирает данные sendData. Бросает исключение при неверном формате. */
     fun parseOrders(data: String): MiniOrders {
         val root = Json.parseToJsonElement(data).jsonObject
-        val orders = root.getValue("q").jsonArray.map { item ->
+        val orders = root["q"]?.jsonArray.orEmpty().map { item ->
             val parts = item.jsonArray
             val type = types[parts[0].jsonPrimitive.content] ?: error("Неизвестный приказ")
             when (type) {
+                ActionType.INVEST -> MiniOrder(type, cityIndex = parts[1].jsonPrimitive.int, amount = parts[2].jsonPrimitive.int)
+                ActionType.REBUILD -> MiniOrder(type, cityIndex = parts[1].jsonPrimitive.int)
+                ActionType.SANCTION -> MiniOrder(type, countryIndex = parts[1].jsonPrimitive.int)
+                ActionType.ECOLOGY -> MiniOrder(type, amount = parts.getOrNull(1)?.jsonPrimitive?.int)
                 ActionType.UPGRADE, ActionType.SHIELD -> MiniOrder(type, cityIndex = parts[1].jsonPrimitive.int)
                 ActionType.LAUNCH -> MiniOrder(type, parts[1].jsonPrimitive.int, parts[2].jsonPrimitive.int)
                 ActionType.TRANSFER -> MiniOrder(type, parts[1].jsonPrimitive.int, amount = parts[2].jsonPrimitive.int)
                 else -> MiniOrder(type)
             }
         }
-        return MiniOrders(root.getValue("t").jsonPrimitive.int, orders, root["r"]?.jsonPrimitive?.boolean ?: false)
+        val transfer = root["x"]?.jsonArray?.let { InstantTransfer(it[0].jsonPrimitive.int, it[1].jsonPrimitive.int, it[2].jsonPrimitive.content) }
+        return MiniOrders(root.getValue("t").jsonPrimitive.int, orders, root["r"]?.jsonPrimitive?.boolean ?: false, root["g"]?.jsonPrimitive?.content, transfer)
     }
 }

@@ -50,7 +50,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "World Domination"
-            packageVersion = "2.1.0"
+            packageVersion = "2.2.0"
             // WiX на Windows не принимает кириллицу при кодовой странице 1252.
             description = if ("win" in System.getProperty("os.name").lowercase()) "World Domination" else "Мировое господство"
             vendor = "vpanff"

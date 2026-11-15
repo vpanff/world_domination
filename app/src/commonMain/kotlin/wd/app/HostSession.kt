@@ -21,6 +21,8 @@ data class AppSettings(
     /** Адрес мини-приложения на GitHub Pages; пусто — игроки отдают приказы кнопками в чате. */
     val miniAppUrl: String = "",
     val defaultRules: wd.core.Rules = wd.core.Rules(),
+    val defaultHardRules: wd.core.HardRules = wd.core.HardRules(),
+    val hardBalanceVersion: Int = 1,
 )
 
 private const val SETTINGS = "settings"
@@ -82,7 +84,8 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
 
     private fun onStateChanged(old: GameState, new: GameState) {
         saves.autosave(new)
-        if (new.turn != old.turn || new.rules != old.rules) bot?.broadcastTurn()
+        bot?.broadcastTransfers(old, new)
+        if (new.turn != old.turn || new.rules != old.rules || new.hardRules != old.hardRules) bot?.broadcastTurn()
         else if (new.activeEvent != old.activeEvent) bot?.broadcastEvent()
     }
 
@@ -135,6 +138,11 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
     }
 
     /** Новый адрес мини-приложения применится при следующем запуске бота. */
+    fun updateDefaultHardRules(rules: wd.core.HardRules) {
+        rules.validate()
+        saveSettings(settings.copy(defaultHardRules = rules))
+    }
+
     fun updateDefaultRules(rules: wd.core.Rules) {
         saveSettings(settings.copy(defaultRules = rules))
     }
@@ -145,9 +153,18 @@ class HostSession(saveStorage: Storage, private val config: Storage, private val
 
     // ─── Настройки ───────────────────────────────────────────────────────────
 
-    private fun loadSettings(): AppSettings =
-        config.read(SETTINGS)?.let { runCatching { json.decodeFromString(AppSettings.serializer(), it) }.getOrNull() }
-            ?: AppSettings()
+    private fun loadSettings(): AppSettings {
+        val loaded = config.read(SETTINGS)?.let { runCatching { json.decodeFromString(AppSettings.serializer(), it) }.getOrNull() } ?: AppSettings()
+        if (loaded.hardBalanceVersion >= 2) return loaded
+        val old = loaded.defaultHardRules
+        // Меняем только прежний стандартный набор. Пользовательский баланс и сохранённые партии не трогаем.
+        val rules = if (old.techEcologyLoss == 2.0 && old.bombLaunchEcologyLoss == 2.5 && old.ecologyPer100 == 4.0 && old.unAid == 400)
+            old.copy(techEcologyLoss = 3.6, bombLaunchEcologyLoss = 4.5, ecologyPer100 = 7.2, unAid = 450)
+        else old
+        val migrated = loaded.copy(defaultHardRules = rules, hardBalanceVersion = 2)
+        config.write(SETTINGS, json.encodeToString(AppSettings.serializer(), migrated))
+        return migrated
+    }
 
     private fun saveSettings(value: AppSettings) {
         settings = value

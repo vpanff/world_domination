@@ -10,6 +10,8 @@ data class CountrySetup(val name: String, val cities: List<String>)
 data class GameSetup(
     val countries: List<CountrySetup> = DEFAULT_COUNTRIES,
     val rules: Rules = Rules(),
+    val mode: GameMode = GameMode.CLASSIC,
+    val hardRules: HardRules = HardRules(),
 ) {
     companion object {
         val DEFAULT_COUNTRIES = listOf(
@@ -24,21 +26,14 @@ data class GameSetup(
 
 /** Создаёт игру. Бросает IllegalArgumentException при некорректных названиях. */
 fun newGame(setup: GameSetup = GameSetup()): GameState {
+    if (setup.mode == GameMode.HARD) return newHardGame(setup.hardRules, setup.countries)
     setup.rules.validateRules()
-    val names = setup.countries.map { it.name.trim() }
-    require(names.size >= 2) { "Нужно минимум 2 страны" }
-    require(names.none { it.isEmpty() }) { "У страны пустое название" }
-    require(names.toSet().size == names.size) { "Названия стран повторяются" }
-    for (c in setup.countries) {
-        val cities = c.cities.map { it.trim() }
-        require(cities.isNotEmpty()) { "У страны ${c.name} нет городов" }
-        require(cities.none { it.isEmpty() }) { "В стране ${c.name} город без названия" }
-        require(cities.toSet().size == cities.size) { "В стране ${c.name} названия городов повторяются" }
-    }
+    validateCountryNames(setup.countries)
 
     val rules = setup.rules.forCountries(setup.countries.size)
     val state = GameState(
         rules = rules,
+        gameId = inviteCode() + inviteCode(),
         ecology = rules.startEcology,
         countries = setup.countries.map { c ->
             Country(
@@ -50,4 +45,18 @@ fun newGame(setup: GameSetup = GameSetup()): GameState {
         },
     )
     return state.withInvites()
+}
+
+internal fun validateCountryNames(countries: List<CountrySetup>) {
+    val names = countries.map { it.name.trim() }
+    require(names.size >= 2) { "Нужно минимум 2 страны" }
+    require(names.none { it.isEmpty() }) { "У страны пустое название" }
+    require(names.toSet().size == names.size) { "Названия стран повторяются" }
+    for (c in countries) {
+        val cities = c.cities.map { it.trim() }
+        require(cities.isNotEmpty()) { "У страны ${c.name} нет городов" }
+        require(cities.none { it.isEmpty() }) { "В стране ${c.name} город без названия" }
+        require(cities.toSet().size == cities.size) { "В стране ${c.name} названия городов повторяются" }
+    }
+
 }

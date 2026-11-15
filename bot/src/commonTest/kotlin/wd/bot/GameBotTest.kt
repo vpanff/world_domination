@@ -2,6 +2,10 @@
 
 package wd.bot
 
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlin.test.assertFalse
+
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.TestScope
@@ -84,6 +88,83 @@ class GameBotTest {
             it.start()
             runCurrent()
         }
+
+    @Test
+    fun hardButtonsAndAmountEntry() = runTest {
+        val uk = "Великобритания"
+        host.state = wd.core.newHardGame().copy(leaders = mapOf(uk to Leader(7, "А")))
+        val bot = startBot()
+        val token = "g" + host.state!!.gameId.take(8)
+        bot.handle(callback(7, "iv:1:0:$token"))
+        bot.handle(message(7, "125"))
+        assertEquals(ActionType.INVEST, host.state!!.pending.single().type)
+        assertEquals(125, host.state!!.pending.single().amount)
+        bot.handle(callback(7, "sn:1:1:$token"))
+        assertEquals(ActionType.SANCTION, host.state!!.pending.last().type)
+        val before = host.state
+        bot.handle(callback(7, "he:1:gwrong"))
+        bot.handle(callback(7, "p:1"))
+        assertEquals(before, host.state)
+        val keyboard = BotText.panel(host.state!!, uk).second!!
+        assertTrue(keyboard.rows.flatten().all { it.data.endsWith(":$token") })
+    }
+
+    @Test
+    fun hardMiniAppQueueSupportsProductionLaunchAndNewActions() = runTest {
+        val uk = "Великобритания"
+        host.state = wd.core.newHardGame(wd.core.HardRules(startBalance = 5000))
+            .copy(leaders = mapOf(uk to Leader(7, "А")))
+            .updateCountry(uk) { it.copy(tech = true) }
+        val bot = startBot()
+        val game = host.state!!.gameId
+        bot.handle(webApp(7, """{"t":1,"g":"$game","q":[["l",1,0],["p"],["i",0,125],["e",75],["n",1]],"r":true}"""))
+        assertEquals(5, host.state!!.pending.size)
+        assertEquals(0, host.state!!.freeBombs(uk))
+        assertTrue(uk in host.state!!.ready)
+        val encoded = Json.parseToJsonElement(MiniApp.encodeState(host.state!!, uk)).jsonObject
+        assertTrue(encoded.getValue("hard").jsonPrimitive.boolean)
+        assertEquals(2, encoded.getValue("v").jsonPrimitive.int)
+        assertEquals(4, encoded.getValue("o").jsonArray.size)
+        val applied = host.state!!.resolveTurn()
+        assertFalse(applied.country("Франция")!!.cities.first().alive)
+        assertTrue(BotText.report(applied, uk).contains("Хард"))
+    }
+
+    @Test
+    fun hardMiniAppTransferIsImmediateAndReplaySafe() = runTest {
+        val uk = "Великобритания"
+        host.state = wd.core.newHardGame().copy(leaders = mapOf(uk to Leader(7, "А")))
+        val bot = startBot()
+        val game = host.state!!.gameId
+        val data = """{"t":1,"g":"$game","x":[1,101,"transfer-once"]}"""
+        bot.handle(webApp(7, data))
+        bot.handle(webApp(7, data))
+        assertEquals(1101, host.state!!.countries[1].balance)
+        assertEquals(899, host.state!!.countries[0].balance)
+        assertEquals(2, host.state!!.liveEvents.size)
+        assertTrue(host.state!!.pending.isEmpty())
+        bot.handle(webApp(7, """{"t":1,"g":"other-game","x":[1,100,"other"]}"""))
+        assertEquals(899, host.state!!.countries[0].balance)
+        bot.handle(webApp(7, """{"t":1,"g":"$game","q":[["t",1,100]],"r":true}"""))
+        assertEquals(899, host.state!!.countries[0].balance, "Мгновенный перевод нельзя повторить через очередь")
+        assertFalse(uk in host.state!!.ready)
+    }
+
+    @Test
+    fun eliminatedHardPlayerCanRebuildThroughBotAndMiniApp() = runTest {
+        val uk = "Великобритания"
+        host.state = wd.core.newHardGame().copy(leaders = mapOf(uk to Leader(7, "А")))
+            .updateCountry(uk) { c -> c.copy(cities = c.cities.map { it.copy(alive = false, life = 0.0, development = 0.0) }) }
+        val bot = startBot("https://example.org/app/")
+        val token = "g" + host.state!!.gameId.take(8)
+        bot.handle(callback(7, "rb:1:0:$token"))
+        assertEquals(ActionType.REBUILD, host.state!!.pending.single().type)
+        val game = host.state!!.gameId
+        bot.handle(webApp(7, """{"t":1,"g":"$game","q":[["b",1]],"r":true}"""))
+        assertEquals("Манчестер", host.state!!.pending.single().target!!.city)
+        assertTrue(uk in host.state!!.ready)
+        assertTrue(BotText.panel(host.state!!, uk).second!!.rows.flatten().any { it.data.startsWith("rb:") })
+    }
 
     @Test
     fun bindByInvite() = runTest {
